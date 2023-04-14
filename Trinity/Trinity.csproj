@@ -56,7 +56,7 @@
       </TfmSpecificPackageFile>
 
       <!-- Here is the tools folder -->
-      <TfmSpecificPackageFile Include="$(OutputPath)\../tools\*.exe*;$(OutputPath)\../tools\*.dll" >
+      <TfmSpecificPackageFile Include="$(OutputPath)\../tools\*.exe*;$(OutputPath)\../tools\*.dll">
         <PackagePath>tools</PackagePath>
       </TfmSpecificPackageFile>
     </ItemGroup>

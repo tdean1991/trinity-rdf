@@ -30,6 +30,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System;
+using System.Data;
 using VDS.RDF.Parsing.Handlers;
 using VDS.RDF.Parsing;
 using VDS.RDF.Query;
@@ -41,17 +42,18 @@ namespace Semiodesk.Trinity.Store.GraphDB
     /// <summary>
     /// This class is the implementation of the IStorage inteface for GraphDB.
     /// </summary>
-    public class GraphDBStore : StoreBase
+    public class GraphDBStore : StoreBase, IGraphDbStore
     {
         #region Members
 
         private bool _isDisposed;
-        
+        private IGraphDbTransaction _currentTransaction;
+
         /// <summary>
         /// Graph which contains the inferred triples in an Ontotext GraphDB repository.
         /// </summary>
-        private readonly IModel _inplicitModel;
-        
+        private readonly IModel _implicitModel;
+
         /// <summary>
         /// Indicates if the store is ready to be queried.
         /// </summary>
@@ -60,7 +62,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <summary>
         /// Handle to the database connection.
         /// </summary>
-        private readonly GraphDBConnector  _connector;
+        private readonly GraphDBConnector _connector;
 
         /// <summary>
         /// Get the URL of the GraphDB database service.
@@ -70,7 +72,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
         #endregion
 
         #region Constructors
-        
+
         /// <summary>
         /// Creates a new connection to the Virtuoso storage. 
         /// </summary>
@@ -80,10 +82,10 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <param name="password">Password needed to connect to storage.</param>
         public GraphDBStore(string hostUri, string repositoryName, string username = null, string password = null)
         {
-            _inplicitModel = new Model(this, new UriRef("http://www.ontotext.com/implicit"));
-            
+            _implicitModel = new Model(this, new UriRef("http://www.ontotext.com/implicit"));
+
             HostUri = hostUri;
-            
+
             _connector = new GraphDBConnector(HostUri, repositoryName, username, password);
 
             if (!string.IsNullOrEmpty(username) || !string.IsNullOrEmpty(password))
@@ -96,7 +98,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
         {
             Dispose();
         }
-        
+
         #endregion
 
         #region Methods
@@ -107,17 +109,18 @@ namespace Semiodesk.Trinity.Store.GraphDB
         public override void Dispose()
         {
             if (_isDisposed) return;
-            
+
             _isDisposed = true;
-                
+
             IsReady = false;
-            
+
             GC.SuppressFinalize(this);
 
             _connector.Dispose();
         }
 
-        [Obsolete("It is not necessary to create models explicitly. Use GetModel() instead, if the model does not exist, it will be created implicitly.")]
+        [Obsolete(
+            "It is not necessary to create models explicitly. Use GetModel() instead, if the model does not exist, it will be created implicitly.")]
         public override IModel CreateModel(Uri uri)
         {
             return GetModel(uri);
@@ -129,17 +132,18 @@ namespace Semiodesk.Trinity.Store.GraphDB
             {
                 throw new NotSupportedException("This store does not support the deletion of graphs.");
             }
-
-            _connector.DeleteGraph(uri);
+            DeleteGraph(uri);
         }
 
-        [Obsolete("This method does not list empty models. At the moment you should just call GetModel() and test for IsEmpty()")]
+        [Obsolete(
+            "This method does not list empty models. At the moment you should just call GetModel() and test for IsEmpty()")]
         public override bool ContainsModel(Uri uri)
         {
-            return uri != null && _connector.ListGraphs().Contains(uri);
+            return uri != null && _connector.ListGraphs(_currentTransaction).Contains(uri);
         }
 
-        [Obsolete("This method does not list empty models. At the moment you should just call GetModel() and test for IsEmpty()")]
+        [Obsolete(
+            "This method does not list empty models. At the moment you should just call GetModel() and test for IsEmpty()")]
         public override bool ContainsModel(IModel model)
         {
             return model != null && ContainsModel(model.Uri);
@@ -152,11 +156,12 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <param name="modelUri">Uri of the model where the resource will be updated</param>
         /// <param name="transaction">Transaction associated with this action.</param>
         /// <param name="ignoreUnmappedProperties">Set this to true to update only mapped properties.</param>
-        public override void UpdateResource(Resource resource, Uri modelUri, ITransaction transaction = null, bool ignoreUnmappedProperties = false)
+        public override void UpdateResource(Resource resource, Uri modelUri, ITransaction transaction = null,
+            bool ignoreUnmappedProperties = false)
         {
             if (resource == null) throw new ArgumentNullException(nameof(resource));
             if (modelUri == null) throw new ArgumentNullException(nameof(modelUri));
-            
+            transaction = transaction ?? _currentTransaction;
             string updateString;
 
             if (resource.IsNew)
@@ -191,11 +196,12 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <param name="transaction">An associated transaction</param>
         public override void ExecuteNonQuery(ISparqlUpdate query, ITransaction transaction = null)
         {
+            transaction = transaction ?? _currentTransaction;
             var q = query.ToString();
 
             Log?.Invoke(q);
 
-            _connector.Update(q);
+            _connector.Update(q, (IGraphDbTransaction)transaction);
         }
 
         /// <summary>
@@ -206,7 +212,8 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <returns></returns>
         public override ISparqlQueryResult ExecuteQuery(ISparqlQuery query, ITransaction transaction = null)
         {
-            var results = ExecuteQuery(query.ToString(), query.IsInferenceEnabled);
+            transaction = transaction ?? _currentTransaction;
+            var results = ExecuteQuery(query.ToString(), query.IsInferenceEnabled, (IGraphDbTransaction)transaction);
 
             switch (results)
             {
@@ -227,30 +234,42 @@ namespace Semiodesk.Trinity.Store.GraphDB
         public override object ExecuteQuery(string queryString)
         {
             Log?.Invoke(queryString);
-            
-            return _connector.Query(queryString, false, false);
+
+            return _connector.Query(queryString, false, false, _currentTransaction);
         }
-        
+
+        /// <summary>
+        /// This method queries the GraphDB store directly.
+        /// </summary>
+        /// <param name="queryString">The SPARQL query to be executed.</param>
+        /// <returns></returns>
+        public object ExecuteQuery(string queryString, ITransaction transaction)
+        {
+            Log?.Invoke(queryString);
+            transaction = transaction ?? _currentTransaction;
+            return _connector.Query(queryString, false, false, (IGraphDbTransaction)transaction);
+        }
+
         /// <summary>
         /// This method queries the GraphDB store directly.
         /// </summary>
         /// <param name="queryString">The SPARQL query to be executed.</param>
         /// <param name="inferenceEnabled">Indicate if the query should be executed with reasoning.</param>
         /// <returns></returns>
-        public object ExecuteQuery(string queryString, bool inferenceEnabled)
+        public object ExecuteQuery(string queryString, bool inferenceEnabled, IGraphDbTransaction transaction)
         {
             Log?.Invoke(queryString);
-
+            transaction = transaction ?? _currentTransaction;
             if (!inferenceEnabled)
             {
-                return _connector.Query(queryString, false, false);
+                return _connector.Query(queryString, false, false, transaction);
             }
-            
+
             // To enable inference in GraphDB we need to add a FROM <http://www.ontotext.com/implicit> clause.
             var query = new SparqlQuery(queryString);
 
             var group = CreateModelGroup();
-            group.Add(_inplicitModel);
+            group.Add(_implicitModel);
 
             foreach (var model in query.GetDefaultModels())
             {
@@ -258,8 +277,8 @@ namespace Semiodesk.Trinity.Store.GraphDB
             }
 
             query.Model = group;
-            
-            return _connector.Query(query.ToString(), false, true);
+
+            return _connector.Query(query.ToString(), false, true, transaction);
         }
 
         /// <summary>
@@ -278,9 +297,9 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <returns>All handles to existing models.</returns>
         public override IEnumerable<IModel> ListModels()
         {
-            foreach (var graph in _connector.ListGraphs())
+            foreach (var graph in _connector.ListGraphs(_currentTransaction))
             {
-                yield return new Model(this, new UriRef(graph));   
+                yield return new Model(this, new UriRef(graph));
             }
         }
 
@@ -295,26 +314,33 @@ namespace Semiodesk.Trinity.Store.GraphDB
             switch (format)
             {
                 case RdfSerializationFormat.N3:
-                    new Notation3Parser().Load(graph, reader); break;
+                    new Notation3Parser().Load(graph, reader);
+                    break;
 
                 case RdfSerializationFormat.NTriples:
-                    new NTriplesParser().Load(graph, reader); break;
-                
+                    new NTriplesParser().Load(graph, reader);
+                    break;
+
                 case RdfSerializationFormat.NQuads:
-                    new NQuadsParser().Load(new GraphHandler(graph), reader); break;
-                
+                    new NQuadsParser().Load(new GraphHandler(graph), reader);
+                    break;
+
                 case RdfSerializationFormat.Turtle:
-                    new TurtleParser().Load(graph, reader); break;
+                    new TurtleParser().Load(graph, reader);
+                    break;
 
                 case RdfSerializationFormat.Json:
-                    new RdfJsonParser().Load(graph, reader); break;
+                    new RdfJsonParser().Load(graph, reader);
+                    break;
 
                 case RdfSerializationFormat.JsonLd:
-                    new JsonLdParser().Load(new GraphHandler(graph), reader); break;
-                
+                    new JsonLdParser().Load(new GraphHandler(graph), reader);
+                    break;
+
                 case RdfSerializationFormat.RdfXml:
                 default:
-                    new RdfXmlParser().Load(graph, reader); break;
+                    new RdfXmlParser().Load(graph, reader);
+                    break;
             }
         }
 
@@ -329,7 +355,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
         public override Uri Read(string content, Uri graphUri, RdfSerializationFormat format, bool update)
         {
             var exists = _connector.ListGraphs().Contains(graphUri);
-            
+
             using (var reader = new StringReader(content))
             {
                 var graph = new Graph();
@@ -340,11 +366,10 @@ namespace Semiodesk.Trinity.Store.GraphDB
 
                 if (exists && !update)
                 {
-                    _connector.DeleteGraph(graphUri);
+                    DeleteGraph(graphUri);
                 }
 
-                _connector.SaveGraph(graph);
-
+                SaveGraph(graph);
                 return graphUri;
             }
         }
@@ -357,10 +382,11 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <param name="format">Allowed formats</param>
         /// <param name="update">Pass false if you want to overwrite the existing data. True if you want to add the new data to the existing.</param>
         /// <returns></returns>
-        public override Uri Read(Stream stream, Uri graphUri, RdfSerializationFormat format, bool update, bool leaveOpen = false)
+        public override Uri Read(Stream stream, Uri graphUri, RdfSerializationFormat format, bool update,
+            bool leaveOpen = false)
         {
-            var exists = _connector.ListGraphs().Contains(graphUri);
-            
+            var exists = _connector.ListGraphs(_currentTransaction).Contains(graphUri);
+
             using (TextReader reader = new StreamReader(stream))
             {
                 var graph = new Graph();
@@ -371,11 +397,10 @@ namespace Semiodesk.Trinity.Store.GraphDB
 
                 if (exists && !update)
                 {
-                    _connector.DeleteGraph(graphUri);
+                    DeleteGraph(graphUri);
                 }
-
-                _connector.SaveGraph(graph);
-
+                SaveGraph(graph);
+                
                 if (!leaveOpen)
                 {
                     stream.Close();
@@ -396,8 +421,8 @@ namespace Semiodesk.Trinity.Store.GraphDB
         public override Uri Read(Uri graphUri, Uri url, RdfSerializationFormat format, bool update)
         {
             IGraph graph = null;
-            
-            var exists = _connector.ListGraphs().Contains(graphUri);
+
+            var exists = _connector.ListGraphs(_currentTransaction).Contains(graphUri);
 
             if (url.AbsoluteUri.StartsWith("file:"))
             {
@@ -423,10 +448,9 @@ namespace Semiodesk.Trinity.Store.GraphDB
                         {
                             if (!update && exists)
                             {
-                                _connector.DeleteGraph(graphUri);
+                                DeleteGraph(graphUri);
                             }
-
-                            _connector.SaveGraph(g);
+                            SaveGraph(g);
                         }
                     }
                     else
@@ -448,13 +472,12 @@ namespace Semiodesk.Trinity.Store.GraphDB
 
             if (graph != null)
             {
+                DeleteGraph(graphUri);
                 if (!update && exists)
                 {
-                    _connector.DeleteGraph(graphUri);
+                    DeleteGraph(graphUri);
                 }
-
-                _connector.SaveGraph(graph);
-
+                SaveGraph(graph);
                 return graphUri;
             }
 
@@ -471,14 +494,15 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <param name="baseUri">Base URI for shortening URIs in formats that support it.</param>
         /// <param name="leaveOpen">Indicates if the stream should be left open after writing completes.</param>
         /// <returns></returns>
-        public override void Write(Stream stream, Uri graphUri, RdfSerializationFormat format, INamespaceMap namespaces = null, Uri baseUri = null, bool leaveOpen = false)
+        public override void Write(Stream stream, Uri graphUri, RdfSerializationFormat format,
+            INamespaceMap namespaces = null, Uri baseUri = null, bool leaveOpen = false)
         {
-            var graphs = _connector.ListGraphs();
-            
+            var graphs = _connector.ListGraphs(_currentTransaction);
+
             if (!graphs.Contains(graphUri)) return;
-            
+
             var graph = new Graph();
-                
+
             _connector.LoadGraph(graph, graphUri);
 
             if (namespaces != null)
@@ -505,9 +529,9 @@ namespace Semiodesk.Trinity.Store.GraphDB
         public override void Write(Stream stream, Uri graphUri, IRdfWriter formatWriter, bool leaveOpen = false)
         {
             if (!_connector.ListGraphs().Contains(graphUri)) return;
-            
+
             IGraph graph = new Graph();
-            
+
             _connector.LoadGraph(graph, graphUri);
 
             Write(stream, graph, formatWriter, leaveOpen);
@@ -519,7 +543,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <returns></returns>
         public override ITransaction BeginTransaction(System.Data.IsolationLevel isolationLevel)
         {
-            return null;
+            return _connector.BeginTransaction(isolationLevel);
         }
 
         /// <summary>
@@ -571,7 +595,104 @@ namespace Semiodesk.Trinity.Store.GraphDB
         {
             return _connector;
         }
+
+        /// <summary>
+        /// Starts a new transaction for the store. Will throw an exception is a transaction is in progress
+        /// </summary>
+        /// <exception cref="InvalidOperationException"></exception>
+        public void Begin()
+        {
+            if (HasTransaction)
+            {
+                throw new InvalidOperationException(
+                    "Transaction is progress. Roll back or commit current transaction before starting a new one.");
+            }
+            _currentTransaction = _connector.BeginTransaction(IsolationLevel.Unspecified);
+        }
+
+        public void Commit()
+        {
+            if (!HasTransaction)
+            {
+                throw new InvalidOperationException("No transaction is in progress.");
+            }
+            _currentTransaction.Commit();
+            _currentTransaction = null;
+        }
+
+        public void Rollback()
+        {
+            if (!HasTransaction)
+            {
+                throw new InvalidOperationException("No transaction is in progress.");
+            }
+
+            _currentTransaction.Rollback();
+            _currentTransaction = null;
+        }
+
+        public override void DeleteResource(Uri modelUri, Uri resourceUri, ITransaction transaction = null)
+        {
+            transaction = transaction ?? _currentTransaction;
+            base.DeleteResource(modelUri, resourceUri, transaction);
+        }
+
+        public override void DeleteResource(IResource resource, ITransaction transaction = null)
+        {
+            transaction = transaction ?? _currentTransaction;
+            base.DeleteResource(resource, transaction);
+        }
+
+        public override void DeleteResources(Uri modelUri, IEnumerable<Uri> resources, ITransaction transaction = null)
+        {
+            transaction = transaction ?? _currentTransaction;
+            base.DeleteResources(modelUri, resources, transaction);
+        }
+
+        public override void DeleteResources(IEnumerable<IResource> resources, ITransaction transaction = null)
+        {
+            transaction = transaction ?? _currentTransaction;
+            base.DeleteResources(resources, transaction);
+        }
+
+        public override void UpdateResources(IEnumerable<Resource> resources, Uri modelUri, ITransaction transaction = null,
+            bool ignoreUnmappedProperties = false)
+        {
+            transaction = transaction ?? _currentTransaction;
+            base.UpdateResources(resources, modelUri, transaction, ignoreUnmappedProperties);
+        }
+
         
+
         #endregion
+
+        public bool HasTransaction
+        {
+            get => !(_currentTransaction is null);
+        }
+
+        private void SaveGraph(IGraph graph)
+        {
+            if (HasTransaction)
+            {
+                _connector.SaveGraph(graph, _currentTransaction);
+            }
+            else
+            {
+                _connector.SaveGraph(graph);
+            }
+        }
+
+        private void DeleteGraph(Uri graphUri)
+        {
+            if (HasTransaction)
+            {
+                _connector.DeleteGraph(graphUri, _currentTransaction);
+            }
+            else
+            {
+                _connector.DeleteGraph(graphUri);
+            }
+        }
     }
 }
