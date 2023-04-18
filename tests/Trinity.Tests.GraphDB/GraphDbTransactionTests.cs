@@ -14,6 +14,8 @@ using Semiodesk.Trinity.Ontologies;
 using Semiodesk.Trinity.Store.GraphDB;
 using Semiodesk.Trinity.Tests.Linq;
 using Semiodesk.Trinity.Tests.Store;
+using VDS.RDF;
+using VDS.RDF.Query;
 using VDS.RDF.Storage;
 
 namespace Semiodesk.Trinity.Tests.GraphDB
@@ -42,7 +44,7 @@ namespace Semiodesk.Trinity.Tests.GraphDB
 
         protected IModel Model1;
 
-       
+        protected IStoreTestSetup Environment;
 
         #endregion
 
@@ -52,12 +54,12 @@ namespace Semiodesk.Trinity.Tests.GraphDB
         [OneTimeSetUp]
         public void OneTimeSetup()
         {
-            var environment = (IStoreTestSetup)Activator.CreateInstance(typeof(GraphDBTestSetup));
+            Environment = (IStoreTestSetup)Activator.CreateInstance(typeof(GraphDBTestSetup));
 
-            BaseUri = environment.BaseUri;
-            ConnectionString = environment.ConnectionString;
-
-            environment.LoadProvider();
+            BaseUri = Environment.BaseUri;
+            ConnectionString = Environment.ConnectionString;
+            
+            Environment.LoadProvider();
 
             Directory.SetCurrentDirectory(TestContext.CurrentContext.TestDirectory);
             OntologyDiscovery.AddAssembly(Assembly.GetExecutingAssembly());
@@ -276,11 +278,11 @@ namespace Semiodesk.Trinity.Tests.GraphDB
             var curly = Model1.GetResource(curlyUri);
 
             Store.Begin();
-            curly.AddProperty(nco.fullname, "Moe Howard");
+            curly.AddProperty(nco.fullname, "Jerome Lester Horwitz");
             curly.Commit();
             Store.Commit();
             var curly2 = Model1.GetResource(curlyUri);
-            Assert.AreEqual("Moe Howard", curly2.GetValue(nco.fullname));
+            Assert.AreEqual("Jerome Lester Horwitz", curly2.GetValue(nco.fullname));
             
         }
 
@@ -292,14 +294,81 @@ namespace Semiodesk.Trinity.Tests.GraphDB
             var curly = Model1.GetResource(curlyUri);
 
             Store.Begin();
-            curly.AddProperty(nco.fullname, "Moe Howard");
+            curly.AddProperty(nco.fullname, "Jerome Lester Horwitz");
             curly.Commit();
             var curly2 = Model1.GetResource(curlyUri);
-            Assert.AreEqual("Moe Howard", curly2.GetValue(nco.fullname));
+            Assert.AreEqual("Jerome Lester Horwitz", curly2.GetValue(nco.fullname));
             Store.Rollback();
             var curly3 = Model1.GetResource(curlyUri);
             Assert.AreEqual("Curly Howard", curly3.GetValue(nco.fullname));
 
+        }
+
+        [Test]
+        public void CanUpdateTriplesAndCommit()
+        {
+            InitializeModels();
+            var curlyUri = BaseUri.GetUriRef("curly");
+            var curly = Model1.GetResource(curlyUri);
+            var modelUri = BaseUri.GetUriRef("model1");
+            var connector = (GraphDBConnector)typeof(GraphDBStore).GetField("_connector", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(Store);
+            var getQuery = $@"SELECT ?s_ ?p_ ?o_ FROM <{modelUri}>
+                                WHERE {{ ?s_ ?p_ ?o_ .  FILTER (?s_ = <{curlyUri}>) }}";
+            
+            var results = (SparqlResultSet)connector.Query(getQuery);
+            var nodeFactory = new NodeFactory();
+            var triplesToRemove = results.Where(x => x["o_"]    .ToString() == "Curly Howard")
+                .Select(x => new Triple(nodeFactory.CreateUriNode(curlyUri), nodeFactory.CreateUriNode(new Uri(x["p_"].ToString())), x["o_"]))
+                .ToList();
+           
+            var triplesToAdd = triplesToRemove.Select(x => new Triple(nodeFactory.CreateUriNode(curlyUri), nodeFactory.CreateUriNode(new Uri(x.Predicate.ToString())), nodeFactory.CreateLiteralNode("Jerome Lester Horwitz"))).ToList();
+            var transaction = connector.BeginTransaction();
+            connector.UpdateGraph(modelUri, triplesToAdd, triplesToRemove, transaction);
+            transaction.Commit();
+
+            var afterResults = (SparqlResultSet)connector.Query(getQuery);
+            var deletedItems = afterResults.Where(x => x["o_"].ToString() == "Curly Howard").ToList();
+            var newResults = afterResults.Where(x => x["o_"].ToString() == "Jerome Lester Horwitz").ToList();
+            Assert.AreEqual(0, deletedItems.Count);
+            Assert.AreEqual(1, newResults.Count);
+
+        }
+
+        [Test]
+        public void CanUpdateTriplesAndRollback()
+        {
+            InitializeModels();
+            var curlyUri = BaseUri.GetUriRef("curly");
+            var curly = Model1.GetResource(curlyUri);
+            var modelUri = BaseUri.GetUriRef("model1");
+            var connector = (GraphDBConnector)typeof(GraphDBStore).GetField("_connector", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(Store);
+            var getQuery = $@"SELECT ?s_ ?p_ ?o_ FROM <{modelUri}>
+                                WHERE {{ ?s_ ?p_ ?o_ .  FILTER (?s_ = <{curlyUri}>) }}";
+
+            var results = (SparqlResultSet)connector.Query(getQuery);
+            var nodeFactory = new NodeFactory();
+            var triplesToRemove = results.Where(x => x["o_"].ToString() == "Curly Howard")
+                .Select(x => new Triple(nodeFactory.CreateUriNode(curlyUri), nodeFactory.CreateUriNode(new Uri(x["p_"].ToString())), x["o_"]))
+                .ToList();
+
+            var triplesToAdd = triplesToRemove.Select(x => new Triple(nodeFactory.CreateUriNode(curlyUri), nodeFactory.CreateUriNode(new Uri(x.Predicate.ToString())), nodeFactory.CreateLiteralNode("Jerome Lester Horwitz"))).ToList();
+            var transaction = connector.BeginTransaction();
+            connector.UpdateGraph(modelUri, triplesToAdd, triplesToRemove, transaction);
+
+
+
+            var afterResults = (SparqlResultSet)connector.Query(getQuery, transaction);
+            var deletedItems = afterResults.Where(x => x["o_"].ToString() == "Curly Howard").ToList();
+            var newItems = afterResults.Where(x => x["o_"].ToString() == "Jerome Lester Horwitz").ToList();
+            Assert.AreEqual(0, deletedItems.Count);
+            Assert.AreEqual(1, newItems.Count);
+            transaction.Rollback();
+
+            var rollbackResults = (SparqlResultSet)connector.Query(getQuery);
+            var deletedItemsRollback = rollbackResults.Where(x => x["o_"].ToString() == "Curly Howard").ToList();
+            var newItemsRollback = rollbackResults.Where(x => x["o_"].ToString() == "Jerome Lester Horwitz").ToList();
+            Assert.AreEqual(1, deletedItemsRollback.Count);
+            Assert.AreEqual(0, newItemsRollback.Count);
         }
 
 

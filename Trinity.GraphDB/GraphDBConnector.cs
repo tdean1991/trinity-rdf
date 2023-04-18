@@ -43,6 +43,7 @@ using VDS.RDF.Query;
 using VDS.RDF.Storage;
 using VDS.RDF;
 using IsolationLevel = System.Data.IsolationLevel;
+using VDS.RDF.Writing.Formatting;
 
 namespace Semiodesk.Trinity.Store.GraphDB
 {
@@ -52,6 +53,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
     public class GraphDBConnector : SesameHttpProtocolVersion6Connector
     {
         protected readonly string _transactionsPath = "/transactions";
+        private NTriplesFormatter _formatter = new NTriplesFormatter();
         #region Constructors
 
         /// <summary>
@@ -245,6 +247,26 @@ namespace Semiodesk.Trinity.Store.GraphDB
             }
         }
 
+        // Summary:
+        //     Makes a SPARQL Query against the underlying Store.
+        //
+        // Parameters:
+        //   sparqlQuery:
+        //     SPARQL Query.
+        public object Query(string sparqlQuery, IGraphDbTransaction transaction)
+        {
+            Graph graph = new Graph();
+            SparqlResultSet sparqlResultSet = new SparqlResultSet();
+            Query(new GraphHandler(graph), new ResultSetHandler(sparqlResultSet), sparqlQuery, transaction);
+            if (sparqlResultSet.ResultsType != SparqlResultsType.Unknown)
+            {
+                return sparqlResultSet;
+            }
+
+            return graph;
+        }
+
+
         public override IEnumerable<Uri> ListGraphs() => ListGraphs(null);
 
 
@@ -410,6 +432,92 @@ namespace Semiodesk.Trinity.Store.GraphDB
         }
         #endregion
 
+        //
+        // Summary:
+        //     Updates a Graph.
+        //
+        // Parameters:
+        //   graphUri:
+        //     Uri of the Graph to update.
+        //
+        //   additions:
+        //     Triples to be added.
+        //
+        //   removals:
+        //     Triples to be removed.
+        public void UpdateGraph(Uri graphUri, IEnumerable<Triple> additions, IEnumerable<Triple> removals, IGraphDbTransaction transaction)
+        {
+            UpdateGraph(ToSafeString(graphUri), additions, removals, transaction);
+        }
+
+        //
+        // Summary:
+        //     Updates a Graph.
+        //
+        // Parameters:
+        //   graphUri:
+        //     Uri of the Graph to update.
+        //
+        //   additions:
+        //     Triples to be added.
+        //
+        //   removals:
+        //     Triples to be removed.
+        public void UpdateGraph(string graphUri, IEnumerable<Triple> additions, IEnumerable<Triple> removals, IGraphDbTransaction transaction)
+        {
+            try
+            {
+                Dictionary<string, string> dictionary = new Dictionary<string, string>();
+                IRdfWriter rdfWriter = CreateRdfWriter();
+                dictionary.Add("baseUri", graphUri);
+
+                if (removals != null && removals.Any())
+                {
+                    foreach (Triple item in removals.Distinct())
+                    {
+                        dictionary["action"] = "UPDATE";
+
+
+                        var tstr = _formatter.Format(item);
+                        var query = $@"DELETE DATA {{ GRAPH <{graphUri}> {{{tstr}}} }} ";
+                        dictionary["update"] = query;
+                        HttpWebRequest httpWebRequest = CreateRequest(GetTransactionUri(transaction), "*/*", "PUT", dictionary);
+                        Tools.HttpDebugRequest(httpWebRequest);
+                        HttpWebResponse httpWebResponse;
+                        using (httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse())
+                        {
+                            Tools.HttpDebugResponse(httpWebResponse);
+                            httpWebResponse.Close();
+                        }
+                    }
+
+                    
+                }
+                
+                if (additions != null && additions.Any())
+                {
+                    Graph graph = new Graph();
+                    graph.Assert(additions);
+                    var stringWriter = new StringWriter();
+                    rdfWriter.Save(graph, stringWriter);
+                    dictionary["update"] = $@"INSERT DATA {{  GRAPH <{graphUri}> {{{stringWriter.ToString()}}} }}";
+                    HttpWebRequest httpWebRequest = CreateRequest(GetTransactionUri(transaction), "*/*", "PUT", dictionary);
+                    httpWebRequest.ContentType = GetSaveContentType();
+                    Tools.HttpDebugRequest(httpWebRequest);
+                    HttpWebResponse httpWebResponse;
+                    using (httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse())
+                    {
+                        Tools.HttpDebugResponse(httpWebResponse);
+                        httpWebResponse.Close();
+                    }
+                }
+            }
+            catch (WebException webEx)
+            {
+                throw StorageHelper.HandleHttpError(webEx, "updating a Graph in");
+            }
+        }
+
         /// <summary>Deletes a Graph from the Sesame store.</summary>
         /// <param name="graphUri">URI of the Graph to delete.</param>
         public void DeleteGraph(Uri graphUri, IGraphDbTransaction transaction) => this.DeleteGraph(ToSafeString(graphUri), transaction);
@@ -478,7 +586,13 @@ namespace Semiodesk.Trinity.Store.GraphDB
             }
         }
 
+        public override void UpdateGraph(string graphUri, IEnumerable<Triple> additions, IEnumerable<Triple> removals)
+        {
+            base.UpdateGraph(graphUri, additions, removals);
+        }
+
         
+
 
         private string StartTransactionUri
         {
