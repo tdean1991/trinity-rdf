@@ -23,7 +23,12 @@ namespace Semiodesk.Trinity.Store.GraphDB
 
         public void Commit()
         {
+            if(!IsActive)
+            {
+                throw new InvalidOperationException("Transaction has been previously committed or rolled back.");
+            }
             _connector.Commit(this);
+            IsActive = false;
         }
 
         public void Dispose()
@@ -32,7 +37,17 @@ namespace Semiodesk.Trinity.Store.GraphDB
 
         public void Rollback()
         {
+            if (!IsActive)
+            {
+                throw new InvalidOperationException("Transaction has been previously committed or rolled back.");
+            }
             _connector.Rollback(this);
+            IsActive = false;
+        }
+
+        public bool IsActive
+        {
+            get; private set;
         }
     }
 }

@@ -7,5 +7,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
     public interface IGraphDbTransaction : ITransaction
     {
         Guid TransactionId { get; }
+
+        bool IsActive { get; }
     }
 }
