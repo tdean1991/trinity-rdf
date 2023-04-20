@@ -636,9 +636,9 @@ namespace Semiodesk.Trinity
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <returns></returns>
-        public IQueryable<T> AsQueryable<T>(bool inferenceEnabled = false) where T : Resource
+        public IQueryable<T> AsQueryable<T>(bool inferenceEnabled = false, ITransaction transaction = null) where T : Resource
         {
-            SparqlQueryExecutor executor = new SparqlQueryExecutor(this, inferenceEnabled);
+            SparqlQueryExecutor executor = new SparqlQueryExecutor(this, inferenceEnabled, transaction);
 
             QueryParser queryParser = QueryParser.CreateDefault();
 

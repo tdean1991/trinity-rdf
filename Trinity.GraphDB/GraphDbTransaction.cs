@@ -34,6 +34,10 @@ namespace Semiodesk.Trinity.Store.GraphDB
 
         public void Dispose()
         {
+            if (IsActive)
+            {
+                this.Rollback();
+            }
         }
 
         public void Rollback()

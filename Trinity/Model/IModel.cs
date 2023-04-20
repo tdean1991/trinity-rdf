@@ -292,7 +292,7 @@ namespace Semiodesk.Trinity
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <returns></returns>
-        IQueryable<T> AsQueryable<T>(bool inferenceEnabled = false) where T : Resource;
+        IQueryable<T> AsQueryable<T>(bool inferenceEnabled = false, ITransaction transaction = null) where T : Resource;
 
         /// <summary>
         /// Executes a SPARQL query and provides an enumeration of matching resources.
