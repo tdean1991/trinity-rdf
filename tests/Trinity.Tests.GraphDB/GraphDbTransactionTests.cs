@@ -209,15 +209,15 @@ namespace Semiodesk.Trinity.Tests.GraphDB
         public void CanCreateResourceAndCommit()
         {
             InitializeModels();
-            Store.Begin();
+            var transaction = Store.BeginTransaction(IsolationLevel.Unspecified);
             var moeUri = BaseUri.GetUriRef("moe");
-            var moe = Model1.CreateResource(moeUri);
+            var moe = Model1.CreateResource(moeUri, transaction);
             moe.AddProperty(rdf.type, nco.PersonContact);
             moe.AddProperty(nco.fullname, "Moe Howard");
             moe.AddProperty(nco.birthDate, DateTime.Now);
             moe.AddProperty(nco.blogUrl, "http://blog.com/moe");
             moe.Commit();
-            Store.Commit();
+            transaction.Commit();
             var moe2 = Model1.GetResource(moeUri);
             Assert.AreEqual(moe.GetValue(nco.fullname), moe2.GetValue(nco.fullname));
         }
@@ -226,18 +226,18 @@ namespace Semiodesk.Trinity.Tests.GraphDB
         public void CanCreateResourceAndRollback()
         {
             InitializeModels();
-            Store.Begin();
+            var transaction = Store.BeginTransaction(IsolationLevel.Unspecified);
             var larryUri = BaseUri.GetUriRef("larry");
-            var larry = Model1.CreateResource(larryUri);
+            var larry = Model1.CreateResource(larryUri, transaction);
             larry.AddProperty(rdf.type, nco.PersonContact);
             larry.AddProperty(nco.fullname, "Larry Fine");
             larry.AddProperty(nco.birthDate, DateTime.Now);
             larry.AddProperty(nco.blogUrl, "http://blog.com/larry");
             larry.Commit();
 
-            var larry2 = Model1.GetResource(larryUri);
+            var larry2 = Model1.GetResource(larryUri, transaction);
             Assert.AreEqual(larry.GetValue(nco.fullname), larry2.GetValue(nco.fullname));
-            Store.Rollback();
+            transaction.Rollback();
             Assert.Throws<ResourceNotFoundException>(() => Model1.GetResource(larryUri));
         }
 
@@ -248,12 +248,14 @@ namespace Semiodesk.Trinity.Tests.GraphDB
             var curlyUri = BaseUri.GetUriRef("curly");
             var curly = Model1.GetResource(curlyUri);
 
-            Store.Begin();
-            Model1.DeleteResource(curly);
-            Assert.Throws<ResourceNotFoundException>(() => Model1.GetResource(curlyUri));
-            Store.Rollback();
-            var moe2 = Model1.GetResource(curlyUri);
-            Assert.AreEqual(curly.GetValue(nco.fullname), moe2.GetValue(nco.fullname));
+            using (IGraphDbTransaction transaction = Store.BeginTransaction())
+            {
+                Model1.DeleteResource(curly, transaction);
+                Assert.Throws<ResourceNotFoundException>(() => Model1.GetResource(curlyUri, transaction));
+                transaction.Rollback();
+            }
+            var curly2 = Model1.GetResource(curlyUri);
+            Assert.AreEqual(curly.GetValue(nco.fullname), curly2.GetValue(nco.fullname));
             
         }
 
@@ -264,9 +266,9 @@ namespace Semiodesk.Trinity.Tests.GraphDB
             var curlyUri = BaseUri.GetUriRef("curly");
             var curly = Model1.GetResource(curlyUri);
 
-            Store.Begin();
-            Model1.DeleteResource(curly);
-            Store.Commit();
+            var transaction = Store.BeginTransaction();
+            Model1.DeleteResource(curly, transaction);
+            transaction.Commit();
             Assert.Throws<ResourceNotFoundException>(() => Model1.GetResource(curlyUri));
         }
 
@@ -277,10 +279,10 @@ namespace Semiodesk.Trinity.Tests.GraphDB
             var curlyUri = BaseUri.GetUriRef("curly");
             var curly = Model1.GetResource(curlyUri);
 
-            Store.Begin();
+            var transaction = Store.BeginTransaction();
             curly.AddProperty(nco.fullname, "Jerome Lester Horwitz");
             curly.Commit();
-            Store.Commit();
+            transaction.Commit();
             var curly2 = Model1.GetResource(curlyUri);
             Assert.AreEqual("Jerome Lester Horwitz", curly2.GetValue(nco.fullname));
             
@@ -291,16 +293,18 @@ namespace Semiodesk.Trinity.Tests.GraphDB
         {
             InitializeModels();
             var curlyUri = BaseUri.GetUriRef("curly");
-            var curly = Model1.GetResource(curlyUri);
 
-            Store.Begin();
-            curly.AddProperty(nco.fullname, "Jerome Lester Horwitz");
-            curly.Commit();
-            var curly2 = Model1.GetResource(curlyUri);
-            Assert.AreEqual("Jerome Lester Horwitz", curly2.GetValue(nco.fullname));
-            Store.Rollback();
-            var curly3 = Model1.GetResource(curlyUri);
-            Assert.AreEqual("Curly Howard", curly3.GetValue(nco.fullname));
+            using (var transaction = Store.BeginTransaction())
+            {
+                var curly = Model1.GetResource(curlyUri, transaction);
+                curly.AddProperty(nco.fullname, "Jerome Lester Horwitz");
+                curly.Commit();
+                var curly2 = Model1.GetResource(curlyUri, transaction);
+                Assert.AreEqual("Jerome Lester Horwitz", curly2.GetValue(nco.fullname));
+                transaction.Rollback();
+                var curly3 = Model1.GetResource(curlyUri);
+                Assert.AreEqual("Curly Howard", curly3.GetValue(nco.fullname));
+            }
 
         }
 

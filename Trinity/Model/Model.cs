@@ -195,7 +195,7 @@ namespace Semiodesk.Trinity
             };
 
             resource.SetModel(this);
-
+            resource.SetTransaction(transaction);
             return resource;
         }
 
@@ -261,6 +261,7 @@ namespace Semiodesk.Trinity
 
             Resource resource = (Resource)Activator.CreateInstance(t, uri);
             resource.SetModel(this);
+            resource.SetTransaction(transaction);
             resource.IsNew = true;
 
             return resource;
@@ -285,7 +286,7 @@ namespace Semiodesk.Trinity
         /// <param name="transaction">Transaction associated with this action.</param>
         public virtual void DeleteResource(IResource resource, ITransaction transaction = null)
         {
-            DeleteResource(resource.Uri);
+            DeleteResource(resource.Uri, transaction);
         }
 
         public virtual void DeleteResources(IEnumerable<Uri> resources, ITransaction transaction = null)
@@ -401,7 +402,7 @@ namespace Semiodesk.Trinity
         /// <param name="uri">A Uniform Resource Identifier.</param>
         /// <param name="transaction">Transaction associated with this action.</param>
         /// <returns>A resource with all asserted properties.</returns>
-        public IResource GetResource(Uri uri, ITransaction transaction = null)
+        public virtual IResource GetResource(Uri uri, ITransaction transaction = null)
         {
             UriRef uriref = uri as UriRef;
 
@@ -423,7 +424,7 @@ namespace Semiodesk.Trinity
                 r.IsNew = false;
                 r.IsSynchronized = true;
                 r.SetModel(this);
-
+                r.SetTransaction(transaction);
                 return r;
             }
 
@@ -436,7 +437,7 @@ namespace Semiodesk.Trinity
         /// <param name="resource">The instance of IResource to be retrieved.</param>
         /// <param name="transaction">Transaction associated with this action.</param>
         /// <returns>A resource with all asserted properties.</returns>
-        public IResource GetResource(IResource resource, ITransaction transaction = null)
+        public virtual IResource GetResource(IResource resource, ITransaction transaction = null)
         {
             return GetResource(resource.Uri, transaction);
         }
@@ -467,7 +468,7 @@ namespace Semiodesk.Trinity
                 r.IsNew = false;
                 r.IsSynchronized = true;
                 r.SetModel(this);
-
+                r.SetTransaction(transaction);
                 return r;
             }
 
@@ -506,6 +507,7 @@ namespace Semiodesk.Trinity
                     res.IsNew = false;
                     res.IsSynchronized = true;
                     res.SetModel(this);
+                    res.SetTransaction(transaction);
                     return res;
                 }
                 else
@@ -538,6 +540,7 @@ namespace Semiodesk.Trinity
                 foreach (Resource r in result)
                 {
                     r.SetModel(this);
+                    r.SetTransaction(transaction);
                     r.IsNew = false;
                     r.IsSynchronized = true;
                 }
@@ -579,6 +582,7 @@ namespace Semiodesk.Trinity
                     r.IsNew = false;
                     r.IsSynchronized = true;
                     r.SetModel(this);
+                    r.SetTransaction(transaction);
 
                     yield return r;
                 }
@@ -615,6 +619,7 @@ namespace Semiodesk.Trinity
                     if (t == null) continue;
 
                     t.SetModel(this);
+                    t.SetTransaction(transaction);
                     t.IsNew = false;
                     t.IsSynchronized = true;
 

@@ -91,6 +91,20 @@ namespace Semiodesk.Trinity
         }
 
         /// <summary>
+        /// Public accessor to the transaction
+        /// </summary>
+        public ITransaction Transaction { get; set; } = null;
+
+        /// <summary>
+        /// Returns if resource has a transaction
+        /// </summary>
+        /// <returns></returns>
+        public bool HasTransaction()
+        {
+            return Transaction != null;
+        }
+
+        /// <summary>
         /// The uri which represents the resource.
         /// </summary>
         public UriRef Uri { get; set; }
@@ -234,6 +248,15 @@ namespace Semiodesk.Trinity
         public void SetModel(IModel model)
         {
             Model = model;
+        }
+
+        /// <summary>
+        /// Sets the transaction the resource is stored in.
+        /// </summary>
+        /// <param name="model">A model.</param>
+        public void SetTransaction(ITransaction transaction)
+        {
+            Transaction = transaction;
         }
 
         private void Initialize(UriRef uri)
@@ -1076,9 +1099,10 @@ namespace Semiodesk.Trinity
             if (_model != null && IsReadOnly == false)
             {
                 // Update Resource in Model
-                _model.UpdateResource(this);
+                _model.UpdateResource(this, Transaction);
             }
         }
+
 
         /// <summary>
         /// Reload the resource from the model.

@@ -26,16 +26,15 @@
 // Copyright (c) Semiodesk GmbH 2023
 
 using Semiodesk.Trinity.Extensions;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System;
-using System.Data;
-using VDS.RDF.Parsing.Handlers;
+using VDS.RDF;
 using VDS.RDF.Parsing;
+using VDS.RDF.Parsing.Handlers;
 using VDS.RDF.Query;
 using VDS.RDF.Storage;
-using VDS.RDF;
 
 namespace Semiodesk.Trinity.Store.GraphDB
 {
@@ -46,33 +45,17 @@ namespace Semiodesk.Trinity.Store.GraphDB
     {
         #region Members
 
-        private bool _isDisposed;
-        private IGraphDbTransaction _currentTransaction;
-
-        /// <summary>
-        /// Graph which contains the inferred triples in an Ontotext GraphDB repository.
-        /// </summary>
-        private readonly IModel _implicitModel;
-
-        /// <summary>
-        /// Indicates if the store is ready to be queried.
-        /// </summary>
-        public override bool IsReady => _connector != null && _connector.IsReady;
-
         /// <summary>
         /// Handle to the database connection.
         /// </summary>
         private readonly GraphDBConnector _connector;
 
         /// <summary>
-        /// Get the URL of the GraphDB database service.
+        /// Graph which contains the inferred triples in an Ontotext GraphDB repository.
         /// </summary>
-        public string HostUri { get; }
+        private readonly IModel _implicitModel;
 
-        #endregion
-
-        #region Constructors
-
+        private bool _isDisposed;
         /// <summary>
         /// Creates a new connection to the Virtuoso storage. 
         /// </summary>
@@ -99,207 +82,43 @@ namespace Semiodesk.Trinity.Store.GraphDB
             Dispose();
         }
 
+        /// <summary>
+        /// Get the URL of the GraphDB database service.
+        /// </summary>
+        public string HostUri { get; }
+
+        /// <summary>
+        /// Indicates if the store is ready to be queried.
+        /// </summary>
+        public override bool IsReady => _connector != null && _connector.IsReady;
+        #endregion
+
+        #region Constructors
         #endregion
 
         #region Methods
 
-        /// <summary>
-        /// Closes the store. It is not usable after this call.
-        /// </summary>
-        public override void Dispose()
+        private void DeleteGraph(Uri graphUri, IGraphDbTransaction transaction = null)
         {
-            if (_isDisposed) return;
-
-            _isDisposed = true;
-
-            IsReady = false;
-
-            GC.SuppressFinalize(this);
-
-            _connector.Dispose();
-        }
-
-        [Obsolete(
-            "It is not necessary to create models explicitly. Use GetModel() instead, if the model does not exist, it will be created implicitly.")]
-        public override IModel CreateModel(Uri uri)
-        {
-            return GetModel(uri);
-        }
-
-        public override void RemoveModel(Uri uri)
-        {
-            if (!_connector.DeleteSupported)
+            if (transaction is null)
             {
-                throw new NotSupportedException("This store does not support the deletion of graphs.");
-            }
-            DeleteGraph(uri);
-        }
-
-        [Obsolete(
-            "This method does not list empty models. At the moment you should just call GetModel() and test for IsEmpty()")]
-        public override bool ContainsModel(Uri uri)
-        {
-            return uri != null && _connector.ListGraphs(_currentTransaction).Contains(uri);
-        }
-
-        [Obsolete(
-            "This method does not list empty models. At the moment you should just call GetModel() and test for IsEmpty()")]
-        public override bool ContainsModel(IModel model)
-        {
-            return model != null && ContainsModel(model.Uri);
-        }
-
-        /// <summary>
-        /// Updates the properties of a resource in the backing RDF store.
-        /// </summary>
-        /// <param name="resource">Resource that is to be updated in the backing store.</param>
-        /// <param name="modelUri">Uri of the model where the resource will be updated</param>
-        /// <param name="transaction">Transaction associated with this action.</param>
-        /// <param name="ignoreUnmappedProperties">Set this to true to update only mapped properties.</param>
-        public override void UpdateResource(Resource resource, Uri modelUri, ITransaction transaction = null,
-            bool ignoreUnmappedProperties = false)
-        {
-            if (resource == null) throw new ArgumentNullException(nameof(resource));
-            if (modelUri == null) throw new ArgumentNullException(nameof(modelUri));
-            transaction = transaction ?? _currentTransaction;
-            string updateString;
-
-            if (resource.IsNew)
-            {
-                updateString = string.Format(@"
-                    INSERT DATA {{ GRAPH <{0}> {{  {1} }} }} ",
-                    modelUri.OriginalString,
-                    SparqlSerializer.SerializeResource(resource, ignoreUnmappedProperties));
+                _connector.DeleteGraph(graphUri);
             }
             else
             {
-                updateString = string.Format(@"
-                    WITH <{0}>
-                    DELETE {{ {1} ?p ?o. }}
-                    INSERT {{ {2} }}
-                    WHERE {{ OPTIONAL {{ {1} ?p ?o. }} }} ",
-                    modelUri.OriginalString,
-                    SparqlSerializer.SerializeUri(resource.Uri),
-                    SparqlSerializer.SerializeResource(resource, ignoreUnmappedProperties));
-            }
-
-            ExecuteNonQuery(new SparqlUpdate(updateString), transaction);
-
-            resource.IsNew = false;
-            resource.IsSynchronized = true;
-        }
-
-        /// <summary>
-        /// Executes a query on the store which does not expect a result.
-        /// </summary>
-        /// <param name="query">The update query</param>
-        /// <param name="transaction">An associated transaction</param>
-        public override void ExecuteNonQuery(ISparqlUpdate query, ITransaction transaction = null)
-        {
-            transaction = transaction ?? _currentTransaction;
-            var q = query.ToString();
-
-            Log?.Invoke(q);
-
-            _connector.Update(q, (IGraphDbTransaction)transaction);
-        }
-
-        /// <summary>
-        /// Executes a SparqlQuery on the store.
-        /// </summary>
-        /// <param name="query"></param>
-        /// <param name="transaction"></param>
-        /// <returns></returns>
-        public override ISparqlQueryResult ExecuteQuery(ISparqlQuery query, ITransaction transaction = null)
-        {
-            transaction = transaction ?? _currentTransaction;
-            var results = ExecuteQuery(query.ToString(), query.IsInferenceEnabled, (IGraphDbTransaction)transaction);
-
-            switch (results)
-            {
-                case IGraph graph:
-                    return new dotNetRDFQueryResult(this, query, graph);
-                case SparqlResultSet set:
-                    return new dotNetRDFQueryResult(this, query, set);
-                default:
-                    return null;
+                _connector.DeleteGraph(graphUri, transaction);
             }
         }
 
-        /// <summary>
-        /// This method queries the GraphDB store directly.
-        /// </summary>
-        /// <param name="queryString">The SPARQL query to be executed.</param>
-        /// <returns></returns>
-        public override object ExecuteQuery(string queryString)
+        private void SaveGraph(IGraph graph, IGraphDbTransaction transaction = null)
         {
-            Log?.Invoke(queryString);
-
-            return _connector.Query(queryString, false, false, _currentTransaction);
-        }
-
-        /// <summary>
-        /// This method queries the GraphDB store directly.
-        /// </summary>
-        /// <param name="queryString">The SPARQL query to be executed.</param>
-        /// <returns></returns>
-        public object ExecuteQuery(string queryString, ITransaction transaction)
-        {
-            Log?.Invoke(queryString);
-            transaction = transaction ?? _currentTransaction;
-            return _connector.Query(queryString, false, false, (IGraphDbTransaction)transaction);
-        }
-
-        /// <summary>
-        /// This method queries the GraphDB store directly.
-        /// </summary>
-        /// <param name="queryString">The SPARQL query to be executed.</param>
-        /// <param name="inferenceEnabled">Indicate if the query should be executed with reasoning.</param>
-        /// <returns></returns>
-        public object ExecuteQuery(string queryString, bool inferenceEnabled, IGraphDbTransaction transaction)
-        {
-            Log?.Invoke(queryString);
-            transaction = transaction ?? _currentTransaction;
-            if (!inferenceEnabled)
+            if (transaction is null)
             {
-                return _connector.Query(queryString, false, false, transaction);
+                _connector.SaveGraph(graph);
             }
-
-            // To enable inference in GraphDB we need to add a FROM <http://www.ontotext.com/implicit> clause.
-            var query = new SparqlQuery(queryString);
-
-            var group = CreateModelGroup();
-            group.Add(_implicitModel);
-
-            foreach (var model in query.GetDefaultModels())
+            else
             {
-                group.Add(new Model(this, new UriRef(model)));
-            }
-
-            query.Model = group;
-
-            return _connector.Query(query.ToString(), false, true, transaction);
-        }
-
-        /// <summary>
-        /// Gets a handle to a model in the store.
-        /// </summary>
-        /// <param name="uri">Uri of the model.</param>
-        /// <returns></returns>
-        public override IModel GetModel(Uri uri)
-        {
-            return new Model(this, uri.ToUriRef());
-        }
-
-        /// <summary>
-        /// Lists all models in the store.
-        /// </summary>
-        /// <returns>All handles to existing models.</returns>
-        public override IEnumerable<IModel> ListModels()
-        {
-            foreach (var graph in _connector.ListGraphs(_currentTransaction))
-            {
-                yield return new Model(this, new UriRef(graph));
+                _connector.SaveGraph(graph, transaction);
             }
         }
 
@@ -345,6 +164,264 @@ namespace Semiodesk.Trinity.Store.GraphDB
         }
 
         /// <summary>
+        /// </summary>
+        /// <param name="isolationLevel"></param>
+        /// <returns></returns>
+        public override ITransaction BeginTransaction(System.Data.IsolationLevel isolationLevel)
+        {
+            return _connector.BeginTransaction(isolationLevel);
+        }
+
+        public IGraphDbTransaction BeginTransaction() => _connector.BeginTransaction();
+
+        [Obsolete(
+                    "This method does not list empty models. At the moment you should just call GetModel() and test for IsEmpty()")]
+        public bool ContainsModel(Uri uri, IGraphDbTransaction transaction = null)
+        {
+            if (transaction is null)
+            {
+                return uri != null && _connector.ListGraphs().Contains(uri);
+            }
+            else
+            {
+                return uri != null && _connector.ListGraphs(transaction).Contains(uri);
+            }
+        }
+
+        [Obsolete(
+                    "This method does not list empty models. At the moment you should just call GetModel() and test for IsEmpty()")]
+        public bool ContainsModel(IModel model, IGraphDbTransaction transaction = null)
+        {
+            return model != null && ContainsModel(model.Uri, transaction);
+        }
+
+        public override bool ContainsModel(Uri uri)
+        {
+            return uri != null && _connector.ListGraphs().Contains(uri);
+        }
+
+        [Obsolete(
+                            "It is not necessary to create models explicitly. Use GetModel() instead, if the model does not exist, it will be created implicitly.")]
+        public IModel CreateModel(Uri uri)
+        {
+            return new Model(this, new UriRef(uri));
+        }
+
+        /// <summary>
+        /// Gets a handle to a model in the store.
+        /// </summary>
+        /// <param name="uri">Uri of the model.</param>
+        /// <returns></returns>
+        public IModel GetGraphDbModel(Uri uri)
+        {
+            return new Model(this, new UriRef(uri));
+        }
+
+        /// <summary>
+        /// Gets a handle to a model in the store.
+        /// </summary>
+        /// <param name="uri">Uri of the model.</param>
+        /// <returns></returns>
+        public override IModel GetModel(Uri uri) => GetGraphDbModel(uri);
+
+        /// <summary>
+        /// Creates a model group which allows for queries to be made on multiple models at once.
+        /// </summary>
+        /// <param name="models"></param>
+        /// <returns></returns>
+        public override IModelGroup CreateModelGroup(params Uri[] models)
+        {
+            var modelList = models.Select(m => this.GetGraphDbModel(m)).ToList();
+
+            return new ModelGroup(this, modelList);
+        }
+
+        /// <summary>
+        /// Creates a model group which allows for queries to be made on multiple models at once.
+        /// </summary>
+        /// <param name="models"></param>
+        /// <returns></returns>
+        public new IModelGroup CreateModelGroup(params IModel[] models)
+        {
+            // This approach might seem a bit redundant, but we want to make sure to get the model from the right store.
+            var modelList = models.Select(m => GetGraphDbModel(m.Uri)).ToList();
+
+            return new ModelGroup(this, modelList);
+        }
+
+        public override void DeleteResource(Uri modelUri, Uri resourceUri, ITransaction transaction = null)
+        {
+            base.DeleteResource(modelUri, resourceUri, transaction);
+        }
+
+        public override void DeleteResource(IResource resource, ITransaction transaction = null)
+        {
+            base.DeleteResource(resource, transaction);
+        }
+
+        public override void DeleteResources(Uri modelUri, IEnumerable<Uri> resources, ITransaction transaction = null)
+        {
+            base.DeleteResources(modelUri, resources, transaction);
+        }
+
+        public override void DeleteResources(IEnumerable<IResource> resources, ITransaction transaction = null)
+        {
+            base.DeleteResources(resources, transaction);
+        }
+
+        /// <summary>
+        /// Closes the store. It is not usable after this call.
+        /// </summary>
+        public override void Dispose()
+        {
+            if (_isDisposed) return;
+
+            _isDisposed = true;
+
+            IsReady = false;
+
+            GC.SuppressFinalize(this);
+
+            _connector.Dispose();
+        }
+        /// <summary>
+        /// Executes a query on the store which does not expect a result.
+        /// </summary>
+        /// <param name="query">The update query</param>
+        /// <param name="transaction">An associated transaction</param>
+        public override void ExecuteNonQuery(ISparqlUpdate query, ITransaction transaction = null)
+        {
+            var q = query.ToString();
+
+            Log?.Invoke(q);
+
+            _connector.Update(q, (IGraphDbTransaction)transaction);
+        }
+
+        /// <summary>
+        /// Executes a SparqlQuery on the store.
+        /// </summary>
+        /// <param name="query"></param>
+        /// <param name="transaction"></param>
+        /// <returns></returns>
+        public override ISparqlQueryResult ExecuteQuery(ISparqlQuery query, ITransaction transaction = null)
+        {
+            var results = ExecuteQuery(query.ToString(), query.IsInferenceEnabled, (IGraphDbTransaction)transaction);
+
+            switch (results)
+            {
+                case IGraph graph:
+                    return new dotNetRDFQueryResult(this, query, graph);
+                case SparqlResultSet set:
+                    return new dotNetRDFQueryResult(this, query, set);
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// This method queries the GraphDB store directly.
+        /// </summary>
+        /// <param name="queryString">The SPARQL query to be executed.</param>
+        /// <returns></returns>
+        public override object ExecuteQuery(string queryString)
+        {
+            Log?.Invoke(queryString);
+            return _connector.Query(queryString, false, false, null);
+        }
+
+        /// <summary>
+        /// This method queries the GraphDB store directly.
+        /// </summary>
+        /// <param name="queryString">The SPARQL query to be executed.</param>
+        /// <returns></returns>
+        public object ExecuteQuery(string queryString, ITransaction transaction)
+        {
+            Log?.Invoke(queryString);
+            return _connector.Query(queryString, false, false, (IGraphDbTransaction)transaction);
+        }
+
+        /// <summary>
+        /// This method queries the GraphDB store directly.
+        /// </summary>
+        /// <param name="queryString">The SPARQL query to be executed.</param>
+        /// <param name="inferenceEnabled">Indicate if the query should be executed with reasoning.</param>
+        /// <returns></returns>
+        public object ExecuteQuery(string queryString, bool inferenceEnabled, IGraphDbTransaction transaction)
+        {
+            Log?.Invoke(queryString);
+            if (!inferenceEnabled)
+            {
+                return _connector.Query(queryString, false, false, transaction);
+            }
+
+            // To enable inference in GraphDB we need to add a FROM <http://www.ontotext.com/implicit> clause.
+            var query = new SparqlQuery(queryString);
+
+            var group = CreateModelGroup();
+            group.Add(_implicitModel);
+
+            foreach (var model in query.GetDefaultModels())
+            {
+                group.Add(new Model(this, new UriRef(model)));
+            }
+
+            query.Model = group;
+
+            return _connector.Query(query.ToString(), false, true, transaction);
+        }
+
+        /// <summary>
+        /// Gets a SPARQL query which is used to retrieve all triples about a subject that is
+        /// either referenced using a URI or blank node.
+        /// </summary>
+        /// <param name="modelUri">The graph to be queried.</param>
+        /// <param name="subjectUri">The subject to be described.</param>
+        /// <returns>An instance of <c>ISparqlQuery</c></returns>
+        public override ISparqlQuery GetDescribeQuery(Uri modelUri, Uri subjectUri)
+        {
+            var query = new SparqlQuery("DESCRIBE ?s FROM @model WHERE { ?s ?p ?o . VALUES ?s { @subject } }");
+            query.Bind("@model", modelUri);
+            query.Bind("@subject", subjectUri);
+
+            return query;
+        }
+        
+
+        /// <summary>
+        /// Get a handle to the native dotNetRDF triple storage implementation.
+        /// </summary>
+        /// <returns>The IUpdatableStorage instance used to communicate with the database.</returns>
+        public IUpdateableStorage GetStorage()
+        {
+            return _connector;
+        }
+
+        /// <summary>
+        /// Lists all models in the store.
+        /// </summary>
+        /// <returns>All handles to existing models.</returns>
+        public override IEnumerable<IModel> ListModels()
+        {
+            foreach (var graph in _connector.ListGraphs())
+            {
+                yield return new Model(this, new UriRef(graph));
+            }
+        }
+
+        /// <summary>
+        /// Lists all models in the store.
+        /// </summary>
+        /// <returns>All handles to existing models.</returns>
+        public IEnumerable<IModel> ListModels(IGraphDbTransaction transaction)
+        {
+            foreach (var graph in _connector.ListGraphs(transaction))
+            {
+                yield return new Model(this, new UriRef(graph));
+            }
+        }
+
+        /// <summary>
         /// Loads a serialized graph from the given String into the current store. See allowed <see cref="RdfSerializationFormat">formats</see>.
         /// </summary>
         /// <param name="content">String containing a serialized graph</param>
@@ -352,9 +429,10 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <param name="format">Allowed formats</param>
         /// <param name="update">Pass false if you want to overwrite the existing data. True if you want to add the new data to the existing.</param>
         /// <returns></returns>
-        public override Uri Read(string content, Uri graphUri, RdfSerializationFormat format, bool update)
+        public Uri Read(string content, Uri graphUri, RdfSerializationFormat format, bool update, IGraphDbTransaction transaction = null)
         {
-            var exists = _connector.ListGraphs().Contains(graphUri);
+            var graphs = (transaction is null) ? _connector.ListGraphs() : _connector.ListGraphs(transaction);
+            var exists = graphs.Contains(graphUri);
 
             using (var reader = new StringReader(content))
             {
@@ -366,10 +444,10 @@ namespace Semiodesk.Trinity.Store.GraphDB
 
                 if (exists && !update)
                 {
-                    DeleteGraph(graphUri);
+                    DeleteGraph(graphUri, transaction);
                 }
 
-                SaveGraph(graph);
+                SaveGraph(graph, transaction);
                 return graphUri;
             }
         }
@@ -382,10 +460,11 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <param name="format">Allowed formats</param>
         /// <param name="update">Pass false if you want to overwrite the existing data. True if you want to add the new data to the existing.</param>
         /// <returns></returns>
-        public override Uri Read(Stream stream, Uri graphUri, RdfSerializationFormat format, bool update,
-            bool leaveOpen = false)
+        public Uri Read(Stream stream, Uri graphUri, RdfSerializationFormat format, bool update,
+            bool leaveOpen = false, IGraphDbTransaction transaction = null)
         {
-            var exists = _connector.ListGraphs(_currentTransaction).Contains(graphUri);
+            var graphs = (transaction is null) ? _connector.ListGraphs() : _connector.ListGraphs(transaction);
+            var exists = graphs.Contains(graphUri);
 
             using (TextReader reader = new StreamReader(stream))
             {
@@ -397,10 +476,10 @@ namespace Semiodesk.Trinity.Store.GraphDB
 
                 if (exists && !update)
                 {
-                    DeleteGraph(graphUri);
+                    DeleteGraph(graphUri, transaction);
                 }
-                SaveGraph(graph);
-                
+                SaveGraph(graph, transaction);
+
                 if (!leaveOpen)
                 {
                     stream.Close();
@@ -418,11 +497,11 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <param name="format">Allowed formats</param>
         /// <param name="update">Pass false if you want to overwrite the existing data. True if you want to add the new data to the existing.</param>
         /// <returns></returns>
-        public override Uri Read(Uri graphUri, Uri url, RdfSerializationFormat format, bool update)
+        public Uri Read(Uri graphUri, Uri url, RdfSerializationFormat format, bool update, IGraphDbTransaction transaction = null)
         {
             IGraph graph = null;
-
-            var exists = _connector.ListGraphs(_currentTransaction).Contains(graphUri);
+            var graphs = (transaction is null) ? _connector.ListGraphs() : _connector.ListGraphs(transaction);
+            var exists = graphs.Contains(graphUri);
 
             if (url.AbsoluteUri.StartsWith("file:"))
             {
@@ -448,9 +527,9 @@ namespace Semiodesk.Trinity.Store.GraphDB
                         {
                             if (!update && exists)
                             {
-                                DeleteGraph(graphUri);
+                                DeleteGraph(graphUri, transaction);
                             }
-                            SaveGraph(g);
+                            SaveGraph(g, transaction);
                         }
                     }
                     else
@@ -472,16 +551,93 @@ namespace Semiodesk.Trinity.Store.GraphDB
 
             if (graph != null)
             {
-                DeleteGraph(graphUri);
+                DeleteGraph(graphUri, transaction);
                 if (!update && exists)
                 {
-                    DeleteGraph(graphUri);
+                    DeleteGraph(graphUri, transaction);
                 }
-                SaveGraph(graph);
+                SaveGraph(graph, transaction);
                 return graphUri;
             }
 
             return null;
+        }
+
+        public override Uri Read(Uri modelUri, Uri url, RdfSerializationFormat format, bool update)
+        {
+            return Read(modelUri, url, format, update, null);
+        }
+
+        public override Uri Read(Stream stream, Uri graphUri, RdfSerializationFormat format, bool update, bool leaveOpen = false)
+        {
+            return Read(stream, graphUri, format, update, leaveOpen, null);
+        }
+
+        public override Uri Read(string content, Uri graphUri, RdfSerializationFormat format, bool update)
+        {
+            return Read(content, graphUri, format, update, null);
+        }
+
+        public void RemoveModel(Uri uri, IGraphDbTransaction transaction = null)
+        {
+            if (!_connector.DeleteSupported)
+            {
+                throw new NotSupportedException("This store does not support the deletion of graphs.");
+            }
+            DeleteGraph(uri, transaction);
+        }
+        public override void RemoveModel(Uri uri)
+        {
+            RemoveModel(uri, null);
+        }
+
+        public void RemoveModel(IModel model, IGraphDbTransaction transaction)
+        {
+            RemoveModel(model.Uri, transaction);
+        }
+
+        /// <summary>
+        /// Updates the properties of a resource in the backing RDF store.
+        /// </summary>
+        /// <param name="resource">Resource that is to be updated in the backing store.</param>
+        /// <param name="modelUri">Uri of the model where the resource will be updated</param>
+        /// <param name="transaction">Transaction associated with this action.</param>
+        /// <param name="ignoreUnmappedProperties">Set this to true to update only mapped properties.</param>
+        public override void UpdateResource(Resource resource, Uri modelUri, ITransaction transaction = null,
+            bool ignoreUnmappedProperties = false)
+        {
+            if (resource == null) throw new ArgumentNullException(nameof(resource));
+            if (modelUri == null) throw new ArgumentNullException(nameof(modelUri));
+            string updateString;
+
+            if (resource.IsNew)
+            {
+                updateString = string.Format(@"
+                    INSERT DATA {{ GRAPH <{0}> {{  {1} }} }} ",
+                    modelUri.OriginalString,
+                    SparqlSerializer.SerializeResource(resource, ignoreUnmappedProperties));
+            }
+            else
+            {
+                updateString = string.Format(@"
+                    WITH <{0}>
+                    DELETE {{ {1} ?p ?o. }}
+                    INSERT {{ {2} }}
+                    WHERE {{ OPTIONAL {{ {1} ?p ?o. }} }} ",
+                    modelUri.OriginalString,
+                    SparqlSerializer.SerializeUri(resource.Uri),
+                    SparqlSerializer.SerializeResource(resource, ignoreUnmappedProperties));
+            }
+
+            ExecuteNonQuery(new SparqlUpdate(updateString), transaction);
+
+            resource.IsNew = false;
+            resource.IsSynchronized = true;
+        }
+        public override void UpdateResources(IEnumerable<Resource> resources, Uri modelUri, ITransaction transaction = null,
+                    bool ignoreUnmappedProperties = false)
+        {
+            base.UpdateResources(resources, modelUri, transaction, ignoreUnmappedProperties);
         }
 
         /// <summary>
@@ -494,10 +650,9 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <param name="baseUri">Base URI for shortening URIs in formats that support it.</param>
         /// <param name="leaveOpen">Indicates if the stream should be left open after writing completes.</param>
         /// <returns></returns>
-        public override void Write(Stream stream, Uri graphUri, RdfSerializationFormat format,
-            INamespaceMap namespaces = null, Uri baseUri = null, bool leaveOpen = false)
+        public void Write(Stream stream, Uri graphUri, RdfSerializationFormat format, INamespaceMap namespaces = null, Uri baseUri = null, bool leaveOpen = false, IGraphDbTransaction transaction = null)
         {
-            var graphs = _connector.ListGraphs(_currentTransaction);
+            var graphs = (transaction is null) ? _connector.ListGraphs() : _connector.ListGraphs(transaction);
 
             if (!graphs.Contains(graphUri)) return;
 
@@ -526,9 +681,10 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <param name="formatWriter">A RDF format writer.</param>
         /// <param name="leaveOpen">Indicates if the stream should be left open after writing completes.</param>
         /// <returns></returns>
-        public override void Write(Stream stream, Uri graphUri, IRdfWriter formatWriter, bool leaveOpen = false)
+        public void Write(Stream stream, Uri graphUri, IRdfWriter formatWriter, bool leaveOpen = false, IGraphDbTransaction transaction = null)
         {
-            if (!_connector.ListGraphs().Contains(graphUri)) return;
+            var graphs = (transaction is null) ? _connector.ListGraphs() : _connector.ListGraphs(transaction);
+            if (!graphs.Contains(graphUri)) return;
 
             IGraph graph = new Graph();
 
@@ -536,163 +692,15 @@ namespace Semiodesk.Trinity.Store.GraphDB
 
             Write(stream, graph, formatWriter, leaveOpen);
         }
-
-        /// <summary>
-        /// </summary>
-        /// <param name="isolationLevel"></param>
-        /// <returns></returns>
-        public override ITransaction BeginTransaction(System.Data.IsolationLevel isolationLevel)
-        {
-            return _connector.BeginTransaction(isolationLevel);
-        }
-
-        /// <summary>
-        /// Creates a model group which allows for queries to be made on multiple models at once.
-        /// </summary>
-        /// <param name="models"></param>
-        /// <returns></returns>
-        public override IModelGroup CreateModelGroup(params Uri[] models)
-        {
-            var modelList = models.Select(m => GetModel(m)).ToList();
-
-            return new ModelGroup(this, modelList);
-        }
-
-        /// <summary>
-        /// Creates a model group which allows for queries to be made on multiple models at once.
-        /// </summary>
-        /// <param name="models"></param>
-        /// <returns></returns>
-        public new IModelGroup CreateModelGroup(params IModel[] models)
-        {
-            // This approach might seem a bit redundant, but we want to make sure to get the model from the right store.
-            var modelList = models.Select(m => GetModel(m.Uri)).ToList();
-
-            return new ModelGroup(this, modelList);
-        }
-
-        /// <summary>
-        /// Gets a SPARQL query which is used to retrieve all triples about a subject that is
-        /// either referenced using a URI or blank node.
-        /// </summary>
-        /// <param name="modelUri">The graph to be queried.</param>
-        /// <param name="subjectUri">The subject to be described.</param>
-        /// <returns>An instance of <c>ISparqlQuery</c></returns>
-        public override ISparqlQuery GetDescribeQuery(Uri modelUri, Uri subjectUri)
-        {
-            var query = new SparqlQuery("DESCRIBE ?s FROM @model WHERE { ?s ?p ?o . VALUES ?s { @subject } }");
-            query.Bind("@model", modelUri);
-            query.Bind("@subject", subjectUri);
-
-            return query;
-        }
-
-        /// <summary>
-        /// Get a handle to the native dotNetRDF triple storage implementation.
-        /// </summary>
-        /// <returns>The IUpdatableStorage instance used to communicate with the database.</returns>
-        public IUpdateableStorage GetStorage()
-        {
-            return _connector;
-        }
-
-        /// <summary>
-        /// Starts a new transaction for the store. Will throw an exception is a transaction is in progress
-        /// </summary>
-        /// <exception cref="InvalidOperationException"></exception>
-        public void Begin()
-        {
-            if (HasTransaction)
-            {
-                throw new InvalidOperationException(
-                    "Transaction is progress. Roll back or commit current transaction before starting a new one.");
-            }
-            _currentTransaction = _connector.BeginTransaction(IsolationLevel.Unspecified);
-        }
-
-        public void Commit()
-        {
-            if (!HasTransaction)
-            {
-                throw new InvalidOperationException("No transaction is in progress.");
-            }
-            _currentTransaction.Commit();
-            _currentTransaction = null;
-        }
-
-        public void Rollback()
-        {
-            if (!HasTransaction)
-            {
-                throw new InvalidOperationException("No transaction is in progress.");
-            }
-
-            _currentTransaction.Rollback();
-            _currentTransaction = null;
-        }
-
-        public override void DeleteResource(Uri modelUri, Uri resourceUri, ITransaction transaction = null)
-        {
-            transaction = transaction ?? _currentTransaction;
-            base.DeleteResource(modelUri, resourceUri, transaction);
-        }
-
-        public override void DeleteResource(IResource resource, ITransaction transaction = null)
-        {
-            transaction = transaction ?? _currentTransaction;
-            base.DeleteResource(resource, transaction);
-        }
-
-        public override void DeleteResources(Uri modelUri, IEnumerable<Uri> resources, ITransaction transaction = null)
-        {
-            transaction = transaction ?? _currentTransaction;
-            base.DeleteResources(modelUri, resources, transaction);
-        }
-
-        public override void DeleteResources(IEnumerable<IResource> resources, ITransaction transaction = null)
-        {
-            transaction = transaction ?? _currentTransaction;
-            base.DeleteResources(resources, transaction);
-        }
-
-        public override void UpdateResources(IEnumerable<Resource> resources, Uri modelUri, ITransaction transaction = null,
-            bool ignoreUnmappedProperties = false)
-        {
-            transaction = transaction ?? _currentTransaction;
-            base.UpdateResources(resources, modelUri, transaction, ignoreUnmappedProperties);
-        }
-
-        
-
         #endregion
-
-        public bool HasTransaction
+        public override void Write(Stream fs, Uri graphUri, RdfSerializationFormat format, INamespaceMap namespaces = null, Uri baseUri = null, bool leaveOpen = false)
         {
-            get => !(_currentTransaction is null);
+            Write(fs, graphUri, format, namespaces, baseUri, leaveOpen, null);
         }
 
-        private void SaveGraph(IGraph graph)
+        public override void Write(Stream fs, Uri graphUri, IRdfWriter writer, bool leaveOpen = false)
         {
-            if (HasTransaction)
-            {
-                _connector.SaveGraph(graph, _currentTransaction);
-            }
-            else
-            {
-                _connector.SaveGraph(graph);
-            }
-        }
-
-        private void DeleteGraph(Uri graphUri)
-        {
-            if (HasTransaction)
-            {
-                _connector.DeleteGraph(graphUri, _currentTransaction);
-            }
-            else
-            {
-                _connector.DeleteGraph(graphUri);
-            }
+            Write(fs, graphUri, writer, leaveOpen, null);
         }
     }
 }

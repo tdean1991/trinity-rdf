@@ -14,6 +14,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
         {
             TransactionId = transactionId;
             _connector = connector;
+            IsActive = true;
         }
         public IsolationLevel IsolationLevel => throw new NotImplementedException();
 
