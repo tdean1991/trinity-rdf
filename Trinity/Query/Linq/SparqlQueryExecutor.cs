@@ -20,6 +20,7 @@ namespace Semiodesk.Trinity.Query
         private MethodInfo _getResourceMethod;
 
         private bool _inferenceEnabled;
+        private ITransaction _transaction;
 
         #endregion
 
@@ -35,7 +36,17 @@ namespace Semiodesk.Trinity.Query
             // for later use within ExecuteCollection(QueryModel);
             _getResourceMethod = model.GetType().GetMethods().FirstOrDefault(m => m.IsGenericMethod && m.Name == "GetResources" && m.GetParameters().Any(p => p.ParameterType == typeof(ISparqlQuery)));
         }
-        
+
+        public SparqlQueryExecutor(IModel model, bool inferenceEnabled, ITransaction transaction) : this(model, inferenceEnabled) 
+        {
+            _transaction = transaction;
+        }
+
+
+
+
+
+
         #endregion
 
         #region Methods
@@ -51,7 +62,7 @@ namespace Semiodesk.Trinity.Query
                 visitor.VisitQueryModel(queryModel);
 
                 MethodInfo getResources = _getResourceMethod.MakeGenericMethod(typeof(T));
-                object[] args = new object[] { visitor.GetQuery(), _inferenceEnabled, null };
+                object[] args = new object[] { visitor.GetQuery(), _inferenceEnabled, _transaction };
 
                 foreach (T value in getResources.Invoke(Model, args) as IEnumerable<T>)
                 {
@@ -65,7 +76,7 @@ namespace Semiodesk.Trinity.Query
                 visitor.VisitQueryModel(queryModel);
 
                 ISparqlQuery query = visitor.GetQuery();
-                ISparqlQueryResult result = Model.ExecuteQuery(query, _inferenceEnabled);
+                ISparqlQueryResult result = Model.ExecuteQuery(query, _inferenceEnabled, _transaction);
 
                 // TODO: This works correctly for single bindings, check with multiple bindings.
                 foreach(BindingSet bindings in result.GetBindings())
@@ -96,7 +107,7 @@ namespace Semiodesk.Trinity.Query
                 visitor.VisitQueryModel(queryModel);
 
                 ISparqlQuery query = visitor.GetQuery();
-                ISparqlQueryResult result = Model.ExecuteQuery(query, _inferenceEnabled);
+                ISparqlQueryResult result = Model.ExecuteQuery(query, _inferenceEnabled, _transaction);
 
                 return new object[] { result.GetAnwser() }.OfType<T>().First();
             }
@@ -106,7 +117,7 @@ namespace Semiodesk.Trinity.Query
                 visitor.VisitQueryModel(queryModel);
 
                 ISparqlQuery query = visitor.GetQuery();
-                ISparqlQueryResult result = Model.ExecuteQuery(query, _inferenceEnabled);
+                ISparqlQueryResult result = Model.ExecuteQuery(query, _inferenceEnabled, _transaction);
 
                 BindingSet b = result.GetBindings().FirstOrDefault();
 
