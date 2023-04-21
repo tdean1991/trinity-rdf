@@ -67,6 +67,16 @@ namespace Semiodesk.Trinity
         /// </summary>
         bool IsDisposed { get; set; }
 
+        /// <summary>
+        /// Indicates if this resource is associated with a transaction.
+        /// </summary>
+        bool HasTransaction { get; }
+
+        /// <summary>
+        /// Sets the transaction associated with the resource for commits.
+        /// </summary>
+        ITransaction Transaction { get; set; }
+
         #endregion
 
         #region Methods

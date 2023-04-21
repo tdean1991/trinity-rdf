@@ -99,9 +99,9 @@ namespace Semiodesk.Trinity
         /// Returns if resource has a transaction
         /// </summary>
         /// <returns></returns>
-        public bool HasTransaction()
+        public bool HasTransaction
         {
-            return Transaction != null;
+            get => Transaction != null;
         }
 
         /// <summary>
