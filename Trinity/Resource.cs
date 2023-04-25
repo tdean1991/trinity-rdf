@@ -220,6 +220,7 @@ namespace Semiodesk.Trinity
 
             IsNew = other.IsNew;
             IsSynchronized = other.IsSynchronized;
+            Transaction = other.Transaction;
         }
 
         #endregion
@@ -421,6 +422,7 @@ namespace Semiodesk.Trinity
         /// </summary>
         public virtual void AddProperty(Property property, IResource value)
         {
+            value.Transaction = Transaction; //associate with current transaction
             AddPropertyToMapping(property, value, false);
         }
 
@@ -617,6 +619,7 @@ namespace Semiodesk.Trinity
         /// </summary>
         public void RemoveProperty(Property property, IResource value)
         {
+            value.Transaction = Transaction;
             RemovePropertyFromMapping(property, value);
         }
 
