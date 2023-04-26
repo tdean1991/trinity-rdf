@@ -319,13 +319,14 @@ namespace Semiodesk.Trinity.Tests.GraphDB
             var getQuery = $@"SELECT ?s_ ?p_ ?o_ FROM <{modelUri}>
                                 WHERE {{ ?s_ ?p_ ?o_ .  FILTER (?s_ = <{curlyUri}>) }}";
             
-            var results = (SparqlResultSet)connector.Query(getQuery);
+            var results = (SparqlResultSet)connector.Query(getQuery, false, true, null);
             var nodeFactory = new NodeFactory();
-            var triplesToRemove = results.Where(x => x["o_"]    .ToString() == "Curly Howard")
-                .Select(x => new Triple(nodeFactory.CreateUriNode(curlyUri), nodeFactory.CreateUriNode(new Uri(x["p_"].ToString())), x["o_"]))
+            var triplesToRemove = results.Where(x => x["o_"].ToString() == "Curly Howard")
+                .Select(x => new Triple(x["s_"], x["p_"], x["o_"]))
                 .ToList();
            
-            var triplesToAdd = triplesToRemove.Select(x => new Triple(nodeFactory.CreateUriNode(curlyUri), nodeFactory.CreateUriNode(new Uri(x.Predicate.ToString())), nodeFactory.CreateLiteralNode("Jerome Lester Horwitz"))).ToList();
+            var triplesToAdd = triplesToRemove.Select(x =>
+                new Triple(x.Subject, x.Predicate, nodeFactory.CreateLiteralNode("Jerome Lester Horwitz"))).ToList();
             var transaction = connector.BeginTransaction();
             connector.UpdateGraph(modelUri, triplesToAdd, triplesToRemove, transaction);
             transaction.Commit();
@@ -349,13 +350,13 @@ namespace Semiodesk.Trinity.Tests.GraphDB
             var getQuery = $@"SELECT ?s_ ?p_ ?o_ FROM <{modelUri}>
                                 WHERE {{ ?s_ ?p_ ?o_ .  FILTER (?s_ = <{curlyUri}>) }}";
 
-            var results = (SparqlResultSet)connector.Query(getQuery);
+            var results = (SparqlResultSet)connector.Query(getQuery, false, true, null);
             var nodeFactory = new NodeFactory();
             var triplesToRemove = results.Where(x => x["o_"].ToString() == "Curly Howard")
-                .Select(x => new Triple(nodeFactory.CreateUriNode(curlyUri), nodeFactory.CreateUriNode(new Uri(x["p_"].ToString())), x["o_"]))
+                .Select(x => new Triple(x["s_"], x["p_"], x["o_"]))
                 .ToList();
 
-            var triplesToAdd = triplesToRemove.Select(x => new Triple(nodeFactory.CreateUriNode(curlyUri), nodeFactory.CreateUriNode(new Uri(x.Predicate.ToString())), nodeFactory.CreateLiteralNode("Jerome Lester Horwitz"))).ToList();
+            var triplesToAdd = triplesToRemove.Select(x => new Triple(x.Subject, x.Predicate, nodeFactory.CreateLiteralNode("Jerome Lester Horwitz"))).ToList();
             var transaction = connector.BeginTransaction();
             connector.UpdateGraph(modelUri, triplesToAdd, triplesToRemove, transaction);
 
