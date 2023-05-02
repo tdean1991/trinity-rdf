@@ -496,19 +496,20 @@ namespace Semiodesk.Trinity.Store.GraphDB
                 
                 if (additions != null && additions.Any())
                 {
-                    Graph graph = new Graph();
-                    graph.Assert(additions);
-                    var stringWriter = new StringWriter();
-                    rdfWriter.Save(graph, stringWriter);
-                    dictionary["update"] = $@"INSERT DATA {{  GRAPH <{graphUri}> {{{stringWriter.ToString()}}} }}";
-                    HttpWebRequest httpWebRequest = CreateRequest(GetTransactionUri(transaction), "*/*", "PUT", dictionary);
-                    httpWebRequest.ContentType = GetSaveContentType();
-                    Tools.HttpDebugRequest(httpWebRequest);
-                    HttpWebResponse httpWebResponse;
-                    using (httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse())
+                    foreach (Triple item in additions.Distinct())
                     {
-                        Tools.HttpDebugResponse(httpWebResponse);
-                        httpWebResponse.Close();
+                        dictionary["action"] = "UPDATE";
+                        var tstr = _formatter.Format(item);
+                        dictionary["update"] = $@"INSERT DATA {{  GRAPH <{graphUri}> {{{tstr}}} }}";
+                        HttpWebRequest httpWebRequest = CreateRequest(GetTransactionUri(transaction), "*/*", "PUT", dictionary);
+                        httpWebRequest.ContentType = GetSaveContentType();
+                        Tools.HttpDebugRequest(httpWebRequest);
+                        HttpWebResponse httpWebResponse;
+                        using (httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse())
+                        {
+                            Tools.HttpDebugResponse(httpWebResponse);
+                            httpWebResponse.Close();
+                        }
                     }
                 }
             }
