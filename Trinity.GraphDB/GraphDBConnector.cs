@@ -190,7 +190,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
                     url = GetTransactionUri(transaction);
                     method = "PUT";
                     parameters.Add("action", "QUERY");
-                    parameters.Add("query", sparqlQuery);
+                    parameters.Add("query", this.EscapeQuery(sparqlQuery));
                     request = CreateRequest(url, accept, method, parameters);
                     request.ContentType = "application/x-www-form-urlencoded;charset=utf-8";
                 }
@@ -388,36 +388,25 @@ namespace Semiodesk.Trinity.Store.GraphDB
         /// <param name="sparqlUpdate">SPARQL Update.</param>
         public void Update(string sparqlUpdate, IGraphDbTransaction transaction)
         {
+            if (transaction is null)
+            {
+                Update(sparqlUpdate);
+                return;
+            }
+
             try
             {
                 HttpWebRequest request;
                 var uri = "";
                 var method = "";
                 var queryParams = new Dictionary<string, string>();
-                if (transaction is null)
-                {
-                    uri = $"{this._repositoriesPrefix}{this._store}{this._updatePath}";
-                    method = "POST";
-                    request = this.CreateRequest(uri, "*/*", method, queryParams);
-                    request.ContentType = "application/x-www-form-urlencoded;charset=utf-8";
-                    StringBuilder stringBuilder = new StringBuilder();
-                    stringBuilder.Append("update=");
-                    stringBuilder.Append(HttpUtility.UrlEncode(this.EscapeQuery(sparqlUpdate)));
-                    using (StreamWriter streamWriter = new StreamWriter(request.GetRequestStream(), (Encoding)new UTF8Encoding(Options.UseBomForUtf8)))
-                    {
-                        streamWriter.Write((object)stringBuilder);
-                        streamWriter.Close();
-                    }
-                }
-                else
-                {
-                    uri = GetTransactionUri(transaction);
+                uri = GetTransactionUri(transaction);
                     method = "PUT";
                     queryParams.Add("action", "UPDATE");
-                    queryParams.Add("update", sparqlUpdate);
+                    queryParams.Add("update", EscapeQuery(sparqlUpdate));
                     request = this.CreateRequest(uri,"*/*", method, queryParams);
                     request.ContentType = "application/x-www-form-urlencoded;charset=utf-8";
-                }
+                
                 Tools.HttpDebugRequest(request);
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {

@@ -6,9 +6,9 @@
 	<Copyright>Copyright © Semiodesk GmbH 2015-2020</Copyright>
 	<Description>Enterprise ready object mapper for developing RDF knowledge graph applications with .NET</Description>
 	<Company>Semiodesk GmbH</Company>
-    <Version>1.0.4.14</Version>
-	<AssemblyVersion>1.0.4.14</AssemblyVersion>
-	<FileVersion>1.0.4.14</FileVersion>
+    <Version>1.0.4.15</Version>
+	<AssemblyVersion>1.0.4.15</AssemblyVersion>
+	<FileVersion>1.0.4.15</FileVersion>
 	<AssemblyName>Semiodesk.Trinity</AssemblyName>
 	<RootNamespace>Semiodesk.Trinity</RootNamespace>
     <IsPackable>true</IsPackable>
