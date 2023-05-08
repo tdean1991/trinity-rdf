@@ -44,6 +44,7 @@ using VDS.RDF.Storage;
 using VDS.RDF;
 using IsolationLevel = System.Data.IsolationLevel;
 using VDS.RDF.Writing.Formatting;
+using System.Collections;
 
 namespace Semiodesk.Trinity.Store.GraphDB
 {
@@ -384,16 +385,15 @@ namespace Semiodesk.Trinity.Store.GraphDB
 
         }
 
+        public void Update(Uri graphUri, string sparqlUpdate, IGraphDbTransaction transaction) => Update(sparqlUpdate, transaction, ToSafeString(graphUri));
+
+        public void Update(string sparqlUpdate, IGraphDbTransaction transaction) => Update(sparqlUpdate, transaction, null);
+
+
         /// <summary>Makes a SPARQL Update request to the Sesame server.</summary>
         /// <param name="sparqlUpdate">SPARQL Update.</param>
-        public void Update(string sparqlUpdate, IGraphDbTransaction transaction)
-        {
-            if (transaction is null)
-            {
-                Update(sparqlUpdate);
-                return;
-            }
-
+        private void Update(string sparqlUpdate, IGraphDbTransaction transaction, string baseUri)
+        {            
             try
             {
                 HttpWebRequest request;
@@ -401,11 +401,15 @@ namespace Semiodesk.Trinity.Store.GraphDB
                 var method = "";
                 var queryParams = new Dictionary<string, string>();
                 uri = GetTransactionUri(transaction);
-                    method = "PUT";
-                    queryParams.Add("action", "UPDATE");
-                    queryParams.Add("update", EscapeQuery(sparqlUpdate));
-                    request = this.CreateRequest(uri,"*/*", method, queryParams);
-                    request.ContentType = "application/x-www-form-urlencoded;charset=utf-8";
+                method = "PUT";
+                queryParams.Add("action", "UPDATE");
+                if (!(baseUri is null))
+                {
+                    queryParams.Add("baseUri", baseUri);
+                }
+                queryParams.Add("update", EscapeQuery(sparqlUpdate));
+                request = this.CreateRequest(uri,"*/*", method, queryParams);
+                request.ContentType = "application/x-www-form-urlencoded;charset=utf-8";
                 
                 Tools.HttpDebugRequest(request);
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
