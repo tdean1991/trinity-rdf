@@ -387,7 +387,18 @@ namespace Semiodesk.Trinity.Store.GraphDB
 
         public void Update(Uri graphUri, string sparqlUpdate, IGraphDbTransaction transaction) => Update(sparqlUpdate, transaction, ToSafeString(graphUri));
 
-        public void Update(string sparqlUpdate, IGraphDbTransaction transaction) => Update(sparqlUpdate, transaction, null);
+        public void Update(string sparqlUpdate, IGraphDbTransaction transaction)
+        {
+            if (transaction == null)
+            {
+                base.Update(sparqlUpdate);
+            }
+            else
+            {
+                Update(sparqlUpdate, transaction, null);
+            }
+        }
+      
 
 
         /// <summary>Makes a SPARQL Update request to the Sesame server.</summary>
@@ -443,6 +454,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
             UpdateGraph(ToSafeString(graphUri), additions, removals, transaction);
         }
 
+       
         //
         // Summary:
         //     Updates a Graph.
@@ -493,7 +505,8 @@ namespace Semiodesk.Trinity.Store.GraphDB
                     {
                         dictionary["action"] = "UPDATE";
                         var tstr = _formatter.Format(item);
-                        dictionary["update"] = $@"INSERT DATA {{  GRAPH <{graphUri}> {{{tstr}}} }}";
+                        dictionary["update"] = $@"INSERT {{  GRAPH <{graphUri}> {{{tstr}}} }} where {{ minus {{ GRAPH <{graphUri}> {{{tstr}}} }} }}";
+
                         HttpWebRequest httpWebRequest = CreateRequest(GetTransactionUri(transaction), "*/*", "PUT", dictionary);
                         httpWebRequest.ContentType = GetSaveContentType();
                         Tools.HttpDebugRequest(httpWebRequest);

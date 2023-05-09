@@ -20,9 +20,9 @@
     <RepositoryUrl>https://github.com/semiodesk/trinity-rdf</RepositoryUrl>
     <PackageTags>RDF SPARQL Database Semantic Object Mapping Linked Data GraphDB</PackageTags>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <AssemblyVersion>1.0.4.15</AssemblyVersion>
-    <FileVersion>1.0.4.15</FileVersion>
-    <Version>1.0.4.15</Version>
+    <AssemblyVersion>1.0.4.17</AssemblyVersion>
+    <FileVersion>1.0.4.17</FileVersion>
+    <Version>1.0.4.17</Version>
   </PropertyGroup>
   
   <ItemGroup>
