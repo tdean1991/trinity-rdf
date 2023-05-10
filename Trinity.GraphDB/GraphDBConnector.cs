@@ -451,10 +451,19 @@ namespace Semiodesk.Trinity.Store.GraphDB
         //     Triples to be removed.
         public void UpdateGraph(Uri graphUri, IEnumerable<Triple> additions, IEnumerable<Triple> removals, IGraphDbTransaction transaction)
         {
-            UpdateGraph(ToSafeString(graphUri), additions, removals, transaction);
+            if (transaction  == null)
+            {
+                base.UpdateGraph(graphUri, additions, removals);
+            }
+            else
+            {
+                UpdateGraph(ToSafeString(graphUri), additions, removals, transaction);
+            }
         }
 
        
+
+
         //
         // Summary:
         //     Updates a Graph.
@@ -470,10 +479,14 @@ namespace Semiodesk.Trinity.Store.GraphDB
         //     Triples to be removed.
         public void UpdateGraph(string graphUri, IEnumerable<Triple> additions, IEnumerable<Triple> removals, IGraphDbTransaction transaction)
         {
+            if (transaction == null)
+            {
+                base.UpdateGraph(graphUri, additions, removals);
+                return;
+            }
+            Dictionary<string, string> dictionary = new Dictionary<string, string>();
             try
             {
-                Dictionary<string, string> dictionary = new Dictionary<string, string>();
-                IRdfWriter rdfWriter = CreateRdfWriter();
                 dictionary.Add("baseUri", graphUri);
 
                 if (removals != null && removals.Any())
@@ -505,7 +518,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
                     {
                         dictionary["action"] = "UPDATE";
                         var tstr = _formatter.Format(item);
-                        dictionary["update"] = $@"INSERT {{  GRAPH <{graphUri}> {{{tstr}}} }} where {{ minus {{ GRAPH <{graphUri}> {{{tstr}}} }} }}";
+                        dictionary["update"] = $@"INSERT DATA {{  GRAPH <{graphUri}> {{{tstr}}} }}";
 
                         HttpWebRequest httpWebRequest = CreateRequest(GetTransactionUri(transaction), "*/*", "PUT", dictionary);
                         httpWebRequest.ContentType = GetSaveContentType();
@@ -521,9 +534,10 @@ namespace Semiodesk.Trinity.Store.GraphDB
             }
             catch (WebException webEx)
             {
-                throw StorageHelper.HandleHttpError(webEx, "updating a Graph in");
+                throw StorageHelper.HandleHttpError(webEx, "updating a Graph in ");
             }
         }
+
 
         /// <summary>Deletes a Graph from the Sesame store.</summary>
         /// <param name="graphUri">URI of the Graph to delete.</param>

@@ -374,10 +374,7 @@ namespace Semiodesk.Trinity.Tests.GraphDB
             var newItemsRollback = rollbackResults.Where(x => x["o_"].ToString() == "Jerome Lester Horwitz").ToList();
             Assert.AreEqual(1, deletedItemsRollback.Count);
             Assert.AreEqual(0, newItemsRollback.Count);
-        }
-
-
-
+        }      
 
         #endregion
     }
