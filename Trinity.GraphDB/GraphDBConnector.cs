@@ -45,6 +45,7 @@ using VDS.RDF;
 using IsolationLevel = System.Data.IsolationLevel;
 using VDS.RDF.Writing.Formatting;
 using System.Collections;
+using System.Net.Http;
 
 namespace Semiodesk.Trinity.Store.GraphDB
 {
@@ -162,7 +163,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
                 var url = "";
                 var method = "";
                 HttpWebRequest request;
-                
+
                 var parameters = new Dictionary<string, string>();
                 if (inferenceEnabled)
                 {
@@ -196,7 +197,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
                     request.ContentType = "application/x-www-form-urlencoded;charset=utf-8";
                 }
 
-                
+
 
 
                 Tools.HttpDebugRequest(request);
@@ -276,7 +277,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
             try
             {
                 // Note: This query fails if allowPlainTextResults is true which is the default in dotNetRdf.
-                var obj = Query("SELECT DISTINCT ?g WHERE { GRAPH ?g { ?s ?p ?o } }", false, false,  transaction);
+                var obj = Query("SELECT DISTINCT ?g WHERE { GRAPH ?g { ?s ?p ?o } }", false, false, transaction);
 
                 if (!(obj is SparqlResultSet))
                 {
@@ -398,13 +399,13 @@ namespace Semiodesk.Trinity.Store.GraphDB
                 Update(sparqlUpdate, transaction, null);
             }
         }
-      
+
 
 
         /// <summary>Makes a SPARQL Update request to the Sesame server.</summary>
         /// <param name="sparqlUpdate">SPARQL Update.</param>
         private void Update(string sparqlUpdate, IGraphDbTransaction transaction, string baseUri)
-        {            
+        {
             try
             {
                 HttpWebRequest request;
@@ -419,9 +420,9 @@ namespace Semiodesk.Trinity.Store.GraphDB
                     queryParams.Add("baseUri", baseUri);
                 }
                 queryParams.Add("update", EscapeQuery(sparqlUpdate));
-                request = this.CreateRequest(uri,"*/*", method, queryParams);
+                request = this.CreateRequest(uri, "*/*", method, queryParams);
                 request.ContentType = "application/x-www-form-urlencoded;charset=utf-8";
-                
+
                 Tools.HttpDebugRequest(request);
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
@@ -451,7 +452,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
         //     Triples to be removed.
         public void UpdateGraph(Uri graphUri, IEnumerable<Triple> additions, IEnumerable<Triple> removals, IGraphDbTransaction transaction)
         {
-            if (transaction  == null)
+            if (transaction == null)
             {
                 base.UpdateGraph(graphUri, additions, removals);
             }
@@ -461,7 +462,7 @@ namespace Semiodesk.Trinity.Store.GraphDB
             }
         }
 
-       
+
 
 
         //
@@ -479,28 +480,33 @@ namespace Semiodesk.Trinity.Store.GraphDB
         //     Triples to be removed.
         public void UpdateGraph(string graphUri, IEnumerable<Triple> additions, IEnumerable<Triple> removals, IGraphDbTransaction transaction)
         {
-            if (transaction == null)
-            {
-                base.UpdateGraph(graphUri, additions, removals);
-                return;
-            }
-            Dictionary<string, string> dictionary = new Dictionary<string, string>();
             try
             {
-                dictionary.Add("baseUri", graphUri);
+                if (transaction == null)
+                {
+                    base.UpdateGraph(graphUri, additions, removals);
+                    return;
+                }
+                Dictionary<string, string> dictionary = new Dictionary<string, string>();
+                IRdfWriter rdfWriter = CreateRdfWriter();
+                if (!graphUri.Equals(string.Empty))
+                {
+                    dictionary.Add("context", "<" + graphUri + ">");
+                }
+                                               
 
                 if (removals != null && removals.Any())
                 {
+
+                    dictionary["action"] = "DELETE";
                     foreach (Triple item in removals.Distinct())
                     {
-                        dictionary["action"] = "UPDATE";
-
-
-                        var tstr = _formatter.Format(item);
-                        var query = $@"DELETE DATA {{ GRAPH <{graphUri}> {{{tstr}}} }} ";
-                        dictionary["update"] = query;
                         HttpWebRequest httpWebRequest = CreateRequest(GetTransactionUri(transaction), "*/*", "PUT", dictionary);
-                        Tools.HttpDebugRequest(httpWebRequest);
+                        Graph graph = new Graph();
+                        graph.Assert(removals);
+                        httpWebRequest.ContentType = GetSaveContentType();
+                        rdfWriter.Save(graph, new StreamWriter(httpWebRequest.GetRequestStream()));
+                        Tools.HttpDebugRequest(httpWebRequest);                       
                         HttpWebResponse httpWebResponse;
                         using (httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse())
                         {
@@ -508,20 +514,18 @@ namespace Semiodesk.Trinity.Store.GraphDB
                             httpWebResponse.Close();
                         }
                     }
-
-                    
                 }
-                
+
                 if (additions != null && additions.Any())
                 {
+                    dictionary["action"] = "ADD";
                     foreach (Triple item in additions.Distinct())
                     {
-                        dictionary["action"] = "UPDATE";
-                        var tstr = _formatter.Format(item);
-                        dictionary["update"] = $@"INSERT DATA {{  GRAPH <{graphUri}> {{{tstr}}} }}";
-
                         HttpWebRequest httpWebRequest = CreateRequest(GetTransactionUri(transaction), "*/*", "PUT", dictionary);
+                        Graph graph = new Graph();
+                        graph.Assert(additions);
                         httpWebRequest.ContentType = GetSaveContentType();
+                        rdfWriter.Save(graph, new StreamWriter(httpWebRequest.GetRequestStream()));
                         Tools.HttpDebugRequest(httpWebRequest);
                         HttpWebResponse httpWebResponse;
                         using (httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse())
@@ -549,10 +553,15 @@ namespace Semiodesk.Trinity.Store.GraphDB
         {
             try
             {
-                Dictionary<string, string> queryParams = new Dictionary<string, string>();
-                queryParams.Add("action", "DELETE");
-                queryParams.Add("baseURI", graphUri);
-                HttpWebRequest request = this.CreateRequest(this.GetTransactionUri(transaction), "*/*", "PUT", queryParams);
+                Dictionary<string, string> dictionary = new Dictionary<string, string>();
+                dictionary.Add("action", "DELETE");
+                if (!graphUri.Equals(string.Empty))
+                {
+                    dictionary.Add("context", "<" + graphUri + ">");
+                }
+               
+
+                HttpWebRequest request = this.CreateRequest(this.GetTransactionUri(transaction), "*/*", "PUT", dictionary);
                 Tools.HttpDebugRequest(request);
                 HttpWebResponse response;
                 using (response = (HttpWebResponse)request.GetResponse())
@@ -578,27 +587,33 @@ namespace Semiodesk.Trinity.Store.GraphDB
         {
             try
             {
-                Dictionary<string, string> queryParams = new Dictionary<string, string>();
-                queryParams.Add("action", "ADD");
-                HttpWebRequest request;
-                //if (g.BaseUri != (Uri)null)
-                //{
-                    //if (this._fullContextEncoding)
-                    //    queryParams.Add("context", "<" + g.BaseUri.AbsoluteUri + ">");
-                    //else
-                queryParams.Add("baseUri", g.BaseUri.AbsoluteUri);
-                request = this.CreateRequest(this.GetTransactionUri(transaction), "*/*", "PUT", queryParams);
-
-                //}
-                //else
-                //    request = this.CreateRequest(this._repositoriesPrefix + this._store + "/statements", "*/*", "POST", queryParams);
-                request.ContentType = this.GetSaveContentType();
-                this.CreateRdfWriter().Save(g, (TextWriter)new StreamWriter(request.GetRequestStream()));
-                Tools.HttpDebugRequest(request);
-                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                Dictionary<string, string> dictionary = new Dictionary<string, string>();
+                dictionary.Add("action", "ADD");
+                HttpWebRequest httpWebRequest;
+                if (g.BaseUri != null)
                 {
-                    Tools.HttpDebugResponse(response);
-                    response.Close();
+                    if (this._fullContextEncoding)
+                    {
+                        dictionary.Add("context", "<" + g.BaseUri.AbsoluteUri + ">");
+                    }
+                    else
+                    {
+                        dictionary.Add("context", g.BaseUri.AbsoluteUri);
+                    }
+                    httpWebRequest = this.CreateRequest(this.GetTransactionUri(transaction), "*/*", "PUT", dictionary);
+                }
+                else
+                {
+                    httpWebRequest = this.CreateRequest(this.GetTransactionUri(transaction), "*/*", "PUT", dictionary);
+                }
+                httpWebRequest.ContentType = this.GetSaveContentType();
+                IRdfWriter rdfWriter = CreateRdfWriter();
+                rdfWriter.Save(g, (TextWriter)new StreamWriter(httpWebRequest.GetRequestStream()));
+                Tools.HttpDebugRequest(httpWebRequest);
+                using (HttpWebResponse httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse())
+                {
+                    Tools.HttpDebugResponse(httpWebResponse);
+                    httpWebResponse.Close();
                 }
             }
             catch (WebException ex)
@@ -612,15 +627,17 @@ namespace Semiodesk.Trinity.Store.GraphDB
             base.UpdateGraph(graphUri, additions, removals);
         }
 
-        
-
-
         private string StartTransactionUri
         {
             get => $"{_repositoriesPrefix}{this._store}{this._transactionsPath}";
         }
 
-        private string GetTransactionUri(IGraphDbTransaction transaction) => 
+        private string RepositoriesManagementUri
+        {
+            get => $"rest/{_repositoriesPrefix}";
+        }
+
+        private string GetTransactionUri(IGraphDbTransaction transaction) =>
             $"{_repositoriesPrefix}{this._store}{this._transactionsPath}/{transaction.TransactionId}";
 
         private static string ToSafeString(Uri uri) => uri?.ToString() ?? string.Empty;
