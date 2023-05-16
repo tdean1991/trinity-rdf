@@ -499,41 +499,37 @@ namespace Semiodesk.Trinity.Store.GraphDB
                 {
 
                     dictionary["action"] = "DELETE";
-                    foreach (Triple item in removals.Distinct())
+                    HttpWebRequest httpWebRequest = CreateRequest(GetTransactionUri(transaction), "*/*", "PUT", dictionary);
+                    Graph graph = new Graph();
+                    graph.Assert(removals);
+                    httpWebRequest.ContentType = GetSaveContentType();
+                    rdfWriter.Save(graph, new StreamWriter(httpWebRequest.GetRequestStream()));
+                    Tools.HttpDebugRequest(httpWebRequest);                       
+                    HttpWebResponse httpWebResponse;
+                    using (httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse())
                     {
-                        HttpWebRequest httpWebRequest = CreateRequest(GetTransactionUri(transaction), "*/*", "PUT", dictionary);
-                        Graph graph = new Graph();
-                        graph.Assert(removals);
-                        httpWebRequest.ContentType = GetSaveContentType();
-                        rdfWriter.Save(graph, new StreamWriter(httpWebRequest.GetRequestStream()));
-                        Tools.HttpDebugRequest(httpWebRequest);                       
-                        HttpWebResponse httpWebResponse;
-                        using (httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse())
-                        {
-                            Tools.HttpDebugResponse(httpWebResponse);
-                            httpWebResponse.Close();
-                        }
+                        Tools.HttpDebugResponse(httpWebResponse);
+                        httpWebResponse.Close();
                     }
+                    
                 }
 
                 if (additions != null && additions.Any())
                 {
                     dictionary["action"] = "ADD";
-                    foreach (Triple item in additions.Distinct())
+                    HttpWebRequest httpWebRequest = CreateRequest(GetTransactionUri(transaction), "*/*", "PUT", dictionary);
+                    Graph graph = new Graph();
+                    graph.Assert(additions);
+                    httpWebRequest.ContentType = GetSaveContentType();
+                    rdfWriter.Save(graph, new StreamWriter(httpWebRequest.GetRequestStream()));
+                    Tools.HttpDebugRequest(httpWebRequest);
+                    HttpWebResponse httpWebResponse;
+                    using (httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse())
                     {
-                        HttpWebRequest httpWebRequest = CreateRequest(GetTransactionUri(transaction), "*/*", "PUT", dictionary);
-                        Graph graph = new Graph();
-                        graph.Assert(additions);
-                        httpWebRequest.ContentType = GetSaveContentType();
-                        rdfWriter.Save(graph, new StreamWriter(httpWebRequest.GetRequestStream()));
-                        Tools.HttpDebugRequest(httpWebRequest);
-                        HttpWebResponse httpWebResponse;
-                        using (httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse())
-                        {
-                            Tools.HttpDebugResponse(httpWebResponse);
-                            httpWebResponse.Close();
-                        }
+                        Tools.HttpDebugResponse(httpWebResponse);
+                        httpWebResponse.Close();
                     }
+                    
                 }
             }
             catch (WebException webEx)
